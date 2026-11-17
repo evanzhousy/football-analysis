@@ -72,15 +72,15 @@ export const MULTI_POSITION_SCENARIOS = [
           { start: 3.85, end: 5.35, clip: 'sprint_cut_l', rate: 1.18 },
           { start: 5.35, end: 8.45, clip: 'sprint_fwd', rate: 1.14 },
           { start: 8.45, end: 9.55, clip: 'soccer_cut_left_90', rate: 1.2, offset: 0.05 },
-          { start: 9.55, end: 10.65, clip: 'soccer_shot_drive', rate: 1.18, offset: 0.15 },
+          { start: 9.55, end: 10.65, clip: 'soccer_power_kick', rate: 1.18, offset: 0.12 },
           { start: 10.65, end: 12.2, clip: 'jog_fwd', rate: 1.0 }
         ],
         touchWindows: [
-          { start: 1.9, peak: 2.1, end: 2.35, foot: 'L', type: 'inside', maxWeight: 0.88 },
-          { start: 3.95, peak: 4.2, end: 4.45, foot: 'L', type: 'outside', maxWeight: 0.92 },
-          { start: 5.9, peak: 6.15, end: 6.4, foot: 'L', type: 'inside', maxWeight: 0.9 },
-          { start: 9.0, peak: 9.25, end: 9.5, foot: 'L', type: 'inside', maxWeight: 0.94 },
-          { start: 9.95, peak: 10.15, end: 10.38, foot: 'L', type: 'inside', maxWeight: 0.98 }
+          { start: 1.88, peak: 2.08, end: 2.34, foot: 'L', type: 'inside', action: 'dribble', maxWeight: 0.90 },
+          { start: 3.94, peak: 4.16, end: 4.42, foot: 'L', type: 'outside', action: 'dribble', maxWeight: 0.94 },
+          { start: 5.90, peak: 6.14, end: 6.40, foot: 'L', type: 'inside', action: 'dribble', maxWeight: 0.92 },
+          { start: 8.98, peak: 9.25, end: 9.52, foot: 'L', type: 'inside', action: 'dribble', maxWeight: 0.95 },
+          { start: 9.94, peak: 10.15, end: 10.40, foot: 'L', type: 'inside', action: 'strike', maxWeight: 0.98 }
         ]
       },
       {
@@ -184,9 +184,9 @@ export const MULTI_POSITION_SCENARIOS = [
     ],
     ballTrack: [
       { t: 0.0, x: 3.9, y: 0.115, z: 7.05 },
-      { t: 2.05, x: 5.05, y: 0.115, z: 2.05 },
-      { t: 4.15, x: 7.18, y: 0.115, z: -3.55 },
-      { t: 6.15, x: 6.15, y: 0.115, z: -10.2 },
+      { t: 2.05, x: 5.05, y: 0.115, z: 2.02 },
+      { t: 4.15, x: 7.22, y: 0.115, z: -3.76 },
+      { t: 6.15, x: 6.15, y: 0.115, z: -10.22 },
       { t: 8.2, x: 4.42, y: 0.115, z: -17.15 },
       { t: 9.35, x: 1.65, y: 0.115, z: -18.75 },
       { t: 10.15, x: 1.45, y: 0.115, z: -19.35 },
@@ -261,9 +261,9 @@ export const MULTI_POSITION_SCENARIOS = [
           { start: 5.55, end: 8.8, clip: 'jog_fwd', rate: 0.95 }
         ],
         touchWindows: [
-          { start: 2.05, peak: 2.25, end: 2.45, foot: 'R', type: 'inside', maxWeight: 0.82 },
-          { start: 3.85, peak: 4.1, end: 4.35, foot: 'R', type: 'inside', maxWeight: 0.94 },
-          { start: 4.82, peak: 5.0, end: 5.25, foot: 'R', type: 'instep', maxWeight: 0.98 }
+          { start: 2.02, peak: 2.22, end: 2.45, foot: 'R', type: 'inside', action: 'receive', maxWeight: 0.88 },
+          { start: 3.85, peak: 4.10, end: 4.36, foot: 'R', type: 'inside', action: 'dribble', maxWeight: 0.95 },
+          { start: 4.80, peak: 5.00, end: 5.26, foot: 'R', type: 'instep', action: 'strike', maxWeight: 0.98 }
         ]
       },
       {
@@ -284,7 +284,7 @@ export const MULTI_POSITION_SCENARIOS = [
           { start: 4.6, end: 8.8, clip: 'sprint_fwd', rate: 1.18 }
         ],
         touchWindows: [
-          { start: 7.0, peak: 7.22, end: 7.45, foot: 'R', type: 'inside', maxWeight: 0.88 }
+          { start: 6.96, peak: 7.18, end: 7.42, foot: 'R', type: 'inside', action: 'receive', maxWeight: 0.92 }
         ]
       },
       {
@@ -342,11 +342,11 @@ export const MULTI_POSITION_SCENARIOS = [
     ballTrack: [
       { t: 0.0, x: 25.5, y: 0.115, z: 16.4 },
       { t: 2.2, x: 25.65, y: 0.115, z: 10.85 },
-      { t: 3.9, x: 25.1, y: 0.115, z: 6.15 },
-      { t: 4.55, x: 23.5, y: 0.115, z: 5.45 },
-      { t: 5.0, x: 23.35, y: 0.115, z: 4.55 },
+      { t: 3.9, x: 25.05, y: 0.115, z: 6.12 },
+      { t: 4.55, x: 23.52, y: 0.115, z: 5.48 },
+      { t: 5.00, x: 23.38, y: 0.115, z: 4.86 },
       { t: 6.1, x: 23.9, y: 0.35, z: -9.5, arcY: 0.45 },
-      { t: 7.15, x: 23.55, y: 0.115, z: -20.8 },
+      { t: 7.18, x: 23.52, y: 0.115, z: -21.25 },
       { t: 8.8, x: 22.1, y: 0.115, z: -27.2 }
     ],
     pedriRibbon: [[25.4, 0.06, 16.8], [25.6, 0.06, 11.2], [25.2, 0.06, 6.4], [23.5, 0.06, 5.45], [23.55, 0.06, -20.8]],
@@ -416,15 +416,15 @@ export const MULTI_POSITION_SCENARIOS = [
           { start: 1.5, end: 3.1, clip: 'soccer_cut_left_90', rate: 1.15, offset: 0.05 },
           { start: 3.1, end: 5.65, clip: 'soccer_crossover_feint', rate: 1.32, offset: 0.05 },
           { start: 5.65, end: 7.1, clip: 'soccer_cut_right_90', rate: 1.25, offset: 0.05 },
-          { start: 7.1, end: 8.05, clip: 'soccer_through_ball', rate: 1.25, offset: 0.2 },
+          { start: 7.1, end: 8.05, clip: 'soccer_power_kick', rate: 1.25, offset: 0.15 },
           { start: 8.05, end: 8.6, clip: 'jog_fwd', rate: 1.0 }
         ],
         touchWindows: [
-          { start: 1.4, peak: 1.6, end: 1.85, foot: 'L', type: 'inside', maxWeight: 0.86 },
-          { start: 2.75, peak: 2.98, end: 3.2, foot: 'L', type: 'outside', maxWeight: 0.92 },
-          { start: 4.2, peak: 4.45, end: 4.7, foot: 'L', type: 'inside', maxWeight: 0.95 },
-          { start: 5.6, peak: 5.85, end: 6.1, foot: 'L', type: 'outside', maxWeight: 0.95 },
-          { start: 7.3, peak: 7.52, end: 7.75, foot: 'L', type: 'inside', maxWeight: 0.96 }
+          { start: 1.32, peak: 1.52, end: 1.78, foot: 'L', type: 'inside', action: 'receive', maxWeight: 0.92 },
+          { start: 2.75, peak: 2.96, end: 3.20, foot: 'L', type: 'outside', action: 'dribble', maxWeight: 0.94 },
+          { start: 4.18, peak: 4.42, end: 4.68, foot: 'L', type: 'inside', action: 'dribble', maxWeight: 0.95 },
+          { start: 5.60, peak: 5.84, end: 6.10, foot: 'L', type: 'outside', action: 'dribble', maxWeight: 0.95 },
+          { start: 7.22, peak: 7.42, end: 7.66, foot: 'L', type: 'inside', action: 'strike', maxWeight: 0.98 }
         ]
       },
       {
@@ -510,11 +510,11 @@ export const MULTI_POSITION_SCENARIOS = [
     ],
     ballTrack: [
       { t: 0.0, x: 3.5, y: 0.115, z: -3.2 },
-      { t: 1.45, x: 7.55, y: 0.115, z: -8.85 },
-      { t: 2.9, x: 5.65, y: 0.115, z: -14.1 },
-      { t: 4.35, x: 4.05, y: 0.115, z: -18.55 },
-      { t: 5.75, x: 3.25, y: 0.115, z: -22.65 },
-      { t: 7.45, x: 4.05, y: 0.115, z: -27.45 },
+      { t: 1.48, x: 7.52, y: 0.115, z: -8.92 },
+      { t: 2.92, x: 5.62, y: 0.115, z: -14.15 },
+      { t: 4.38, x: 4.05, y: 0.115, z: -18.58 },
+      { t: 5.78, x: 3.25, y: 0.115, z: -22.68 },
+      { t: 7.42, x: 4.05, y: 0.115, z: -27.55 },
       { t: 8.35, x: -0.85, y: 0.18, z: -34.25, ease: 'linear' },
       { t: 8.6, x: -1.05, y: 0.115, z: -34.8 }
     ],
@@ -546,7 +546,7 @@ export const MULTI_POSITION_SCENARIOS = [
     keypoints: [
       '0.00s–1.65s：巴西中场中路送出贴地直塞，身披巴西黄衫蓝裤（brazil-yellow）的 #7 维尼修斯从肋部斜插弧顶迎球顺趟！',
       '1.70s–3.50s：日本队 #14 与 #4 两名深蓝球衣后卫从左右两侧同时高速回追形成“三明治夹击”；维尼修斯第一脚触球直接向前爆趟半步卡住身前线（sprint_fwd），用爆发步频硬生生把两人甩在身后半个身位！',
-      '3.55s–6.20s：面对红衣门将弃门倒地滑扑封堵，维尼修斯 4.0s 右脚轻巧挑射（soccer_power_kick）越过门将坠入空门（同时提供地面近景第二视角剪辑②）！'
+      '3.55s–6.20s：面对红衣门将弃门倒地滑扑封堵，维尼修斯 4.0s 右脚轻巧挑射越过门将坠入空门（同时提供地面近景第二视角剪辑②）！'
     ],
     phases: [
       { timeRange: [0.0, 1.65], label: '0.0–1.65s 肋部斜插接直塞', desc: '巴西 #10 送出穿透直塞，#7 维尼修斯高速启动切向弧顶中路。' },
@@ -582,13 +582,13 @@ export const MULTI_POSITION_SCENARIOS = [
         mocapSchedule: [
           { start: 0.0, end: 1.55, clip: 'sprint_cut_r', rate: 1.15 },
           { start: 1.55, end: 3.75, clip: 'sprint_fwd', rate: 1.25 },
-          { start: 3.75, end: 4.55, clip: 'soccer_power_kick', rate: 1.32, offset: 0.22 },
+          { start: 3.75, end: 4.55, clip: 'soccer_through_ball', rate: 1.32, offset: 0.22 },
           { start: 4.55, end: 6.2, clip: 'jog_fwd', rate: 1.05 }
         ],
         touchWindows: [
-          { start: 1.5, peak: 1.68, end: 1.88, foot: 'R', type: 'outside', maxWeight: 0.9 },
-          { start: 2.65, peak: 2.85, end: 3.05, foot: 'R', type: 'instep', maxWeight: 0.92 },
-          { start: 3.9, peak: 4.08, end: 4.28, foot: 'R', type: 'inside', maxWeight: 0.98 }
+          { start: 1.44, peak: 1.64, end: 1.88, foot: 'R', type: 'outside', action: 'receive', maxWeight: 0.92 },
+          { start: 2.65, peak: 2.85, end: 3.06, foot: 'R', type: 'instep', action: 'dribble', maxWeight: 0.92 },
+          { start: 3.82, peak: 4.02, end: 4.26, foot: 'R', type: 'inside', action: 'strike', maxWeight: 0.98 }
         ]
       },
       {
@@ -604,8 +604,11 @@ export const MULTI_POSITION_SCENARIOS = [
           { t: 6.2, x: -2.8, z: -13.5, yaw: -3.0, crouch: 0.12 }
         ],
         mocapSchedule: [
-          { start: 0.0, end: 0.85, clip: 'soccer_through_ball', rate: 1.25, offset: 0.2 },
+          { start: 0.0, end: 0.85, clip: 'soccer_power_kick', rate: 1.25, offset: 0.15 },
           { start: 0.85, end: 6.2, clip: 'jog_fwd', rate: 0.9 }
+        ],
+        touchWindows: [
+          { start: 0.0, peak: 0.18, end: 0.42, foot: 'L', type: 'inside', action: 'strike', maxWeight: 0.9 }
         ]
       },
       {
@@ -667,10 +670,11 @@ export const MULTI_POSITION_SCENARIOS = [
       }
     ],
     ballTrack: [
-      { t: 0.0, x: -3.55, y: 0.115, z: -7.1 },
-      { t: 1.62, x: -3.02, y: 0.115, z: -17.25 },
-      { t: 2.85, x: -1.82, y: 0.115, z: -23.75 },
-      { t: 4.02, x: -1.15, y: 0.14, z: -28.15 },
+      { t: 0.0, x: -3.52, y: 0.115, z: -7.02 },
+      { t: 0.18, x: -3.52, y: 0.115, z: -7.12 },
+      { t: 1.62, x: -3.02, y: 0.115, z: -17.18, ease: 'linear' },
+      { t: 2.85, x: -1.86, y: 0.115, z: -23.62 },
+      { t: 4.02, x: -1.18, y: 0.14, z: -28.12 },
       { t: 4.55, x: -0.65, y: 1.25, z: -31.2, arcY: 0.55 },
       { t: 5.15, x: -0.25, y: 0.18, z: -34.45, ease: 'linear' },
       { t: 6.2, x: -0.15, y: 0.115, z: -35.2 }
@@ -744,14 +748,14 @@ export const MULTI_POSITION_SCENARIOS = [
           { start: 0.0, end: 2.85, clip: 'sprint_fwd', rate: 1.24 },
           { start: 2.85, end: 3.45, clip: 'sprint_cut_l', rate: 1.28 },
           { start: 3.45, end: 8.95, clip: 'sprint_fwd', rate: 1.34 },
-          { start: 8.95, end: 9.75, clip: 'soccer_through_ball', rate: 1.28, offset: 0.2 },
+          { start: 8.95, end: 9.75, clip: 'soccer_power_kick', rate: 1.28, offset: 0.16 },
           { start: 9.75, end: 11.2, clip: 'sprint_fwd', rate: 1.12 }
         ],
         touchWindows: [
-          { start: 1.85, peak: 2.05, end: 2.25, foot: 'L', type: 'outside', maxWeight: 0.88 },
-          { start: 2.95, peak: 3.15, end: 3.38, foot: 'L', type: 'instep', maxWeight: 0.95 },
-          { start: 7.05, peak: 7.25, end: 7.45, foot: 'L', type: 'outside', maxWeight: 0.9 },
-          { start: 9.12, peak: 9.3, end: 9.5, foot: 'L', type: 'inside', maxWeight: 0.98 }
+          { start: 1.88, peak: 2.08, end: 2.30, foot: 'L', type: 'outside', action: 'dribble', maxWeight: 0.90 },
+          { start: 2.95, peak: 3.15, end: 3.38, foot: 'L', type: 'instep', action: 'strike', maxWeight: 0.95 },
+          { start: 6.96, peak: 7.18, end: 7.42, foot: 'L', type: 'outside', action: 'receive', maxWeight: 0.92 },
+          { start: 9.08, peak: 9.28, end: 9.50, foot: 'L', type: 'inside', action: 'strike', maxWeight: 0.98 }
         ]
       },
       {
@@ -825,11 +829,11 @@ export const MULTI_POSITION_SCENARIOS = [
     ],
     ballTrack: [
       { t: 0.0, x: -27.2, y: 0.115, z: 18.0 },
-      { t: 2.1, x: -28.9, y: 0.115, z: 7.9 },
-      { t: 3.15, x: -29.8, y: 0.115, z: 2.8 },
-      { t: 6.95, x: -26.8, y: 0.115, z: -18.5, ease: 'linear' }, // knocked 21m ahead into space!
-      { t: 8.45, x: -11.8, y: 0.115, z: -27.2 },
-      { t: 9.3, x: -5.4, y: 0.115, z: -30.5 },
+      { t: 2.08, x: -29.15, y: 0.115, z: 8.15 },
+      { t: 3.15, x: -30.28, y: 0.115, z: 2.75 },
+      { t: 7.18, x: -26.18, y: 0.115, z: -20.22, ease: 'linear' }, // knocked 23m ahead into space!
+      { t: 8.45, x: -11.95, y: 0.115, z: -27.15 },
+      { t: 9.28, x: -5.65, y: 0.115, z: -30.35 },
       { t: 10.05, x: -0.8, y: 0.16, z: -34.45, ease: 'linear' },
       { t: 11.2, x: -0.5, y: 0.115, z: -35.2 }
     ],
@@ -904,9 +908,9 @@ export const MULTI_POSITION_SCENARIOS = [
           { start: 5.65, end: 6.8, clip: 'jog_fwd', rate: 1.0 }
         ],
         touchWindows: [
-          { start: 2.1, peak: 2.3, end: 2.5, foot: 'R', type: 'outside', maxWeight: 0.85 },
-          { start: 2.88, peak: 3.12, end: 3.38, foot: 'R', type: 'inside', maxWeight: 0.96 },
-          { start: 4.98, peak: 5.15, end: 5.35, foot: 'R', type: 'inside', maxWeight: 0.98 }
+          { start: 2.08, peak: 2.28, end: 2.50, foot: 'R', type: 'outside', action: 'dribble', maxWeight: 0.88 },
+          { start: 2.86, peak: 3.10, end: 3.36, foot: 'R', type: 'inside', action: 'dribble', maxWeight: 0.96 },
+          { start: 4.86, peak: 5.08, end: 5.30, foot: 'R', type: 'inside', action: 'strike', maxWeight: 0.98 }
         ]
       },
       {
@@ -984,10 +988,11 @@ export const MULTI_POSITION_SCENARIOS = [
     ],
     ballTrack: [
       { t: 0.0, x: -2.35, y: 0.115, z: -4.65 },
-      { t: 2.25, x: -3.72, y: 0.115, z: -13.2 },
+      { t: 2.28, x: -3.72, y: 0.115, z: -13.18 },
       { t: 2.98, x: -4.02, y: 0.115, z: -15.45 },
+      { t: 3.12, x: -3.65, y: 0.115, z: -15.80 },
       { t: 3.78, x: -1.35, y: 0.115, z: -17.2 },
-      { t: 5.1, x: -1.75, y: 0.115, z: -24.1 },
+      { t: 5.08, x: -1.80, y: 0.115, z: -24.16 },
       { t: 5.82, x: 2.55, y: 0.22, z: -34.35, ease: 'linear' },
       { t: 6.8, x: 2.75, y: 0.115, z: -35.1 }
     ],
@@ -1067,10 +1072,10 @@ export const MULTI_POSITION_SCENARIOS = [
           { start: 12.05, end: 13.8, clip: 'sprint_fwd', rate: 1.05 }
         ],
         touchWindows: [
-          { start: 2.35, peak: 2.55, end: 2.75, foot: 'R', type: 'instep', maxWeight: 0.86 },
-          { start: 4.65, peak: 4.85, end: 5.05, foot: 'R', type: 'outside', maxWeight: 0.9 },
-          { start: 10.05, peak: 10.3, end: 10.55, foot: 'R', type: 'inside', maxWeight: 0.96 },
-          { start: 11.42, peak: 11.6, end: 11.82, foot: 'R', type: 'instep', maxWeight: 0.98 }
+          { start: 2.34, peak: 2.54, end: 2.75, foot: 'R', type: 'instep', action: 'dribble', maxWeight: 0.88 },
+          { start: 4.62, peak: 4.84, end: 5.06, foot: 'R', type: 'outside', action: 'dribble', maxWeight: 0.90 },
+          { start: 10.05, peak: 10.28, end: 10.54, foot: 'R', type: 'inside', action: 'dribble', maxWeight: 0.96 },
+          { start: 11.36, peak: 11.58, end: 11.82, foot: 'R', type: 'instep', action: 'strike', maxWeight: 0.98 }
         ]
       },
       {
@@ -1147,12 +1152,13 @@ export const MULTI_POSITION_SCENARIOS = [
     ],
     ballTrack: [
       { t: 0.0, x: -4.25, y: 0.115, z: 20.8 },
-      { t: 2.5, x: -5.85, y: 0.115, z: 11.95 },
-      { t: 4.8, x: -6.75, y: 0.115, z: 2.75 },
+      { t: 2.54, x: -5.85, y: 0.115, z: 11.95 },
+      { t: 4.84, x: -6.75, y: 0.115, z: 2.75 },
       { t: 7.4, x: -4.1, y: 0.115, z: -7.95 },
       { t: 9.65, x: -2.15, y: 0.115, z: -16.15 },
+      { t: 10.28, x: -3.78, y: 0.115, z: -17.78 },
       { t: 10.65, x: -4.55, y: 0.115, z: -18.6 },
-      { t: 11.58, x: -4.15, y: 0.115, z: -20.55 },
+      { t: 11.58, x: -4.20, y: 0.115, z: -20.30 },
       { t: 12.42, x: 2.45, y: 0.18, z: -34.35, ease: 'linear' },
       { t: 13.8, x: 2.65, y: 0.115, z: -35.1 }
     ],
@@ -1210,7 +1216,7 @@ export const MULTI_POSITION_SCENARIOS = [
         skinTone: '#5c3a24',
         label: '#12 廷伯 Jurriën Timber (右后卫 RB)',
         keyframes: [
-          { t: 0.0, x: 6.8, z: -17.2, yaw: 0.35, scanYaw: -0.75, crouch: 0.25 },
+          { t: 0.0, x: 6.8, z: -17.2, yaw: 0.35, scanYaw: -0.75, crouch: 0.28 },
           { t: 1.05, x: 6.6, z: -17.6, yaw: 0.2, crouch: 0.44 },
           { t: 1.95, x: 6.2, z: -21.2, yaw: -2.95, crouch: 0.36, leanRoll: 0.16 },
           { t: 3.05, x: 5.4, z: -26.8, yaw: -2.85, crouch: 0.32 },
@@ -1218,16 +1224,16 @@ export const MULTI_POSITION_SCENARIOS = [
           { t: 6.0, x: 7.2, z: -30.5, yaw: -1.65, crouch: 0.12 }
         ],
         mocapSchedule: [
-          { start: 0.0, end: 0.98, clip: 'idle_scan', rate: 1.05 },
-          { start: 0.98, end: 1.95, clip: 'soccer_half_turn_180', rate: 1.38, offset: 0.15 },
+          { start: 0.0, end: 0.96, clip: 'crouch_jockey_fwd', rate: 1.0 },
+          { start: 0.96, end: 1.95, clip: 'soccer_half_turn_180', rate: 1.38, offset: 0.15 },
           { start: 1.95, end: 3.45, clip: 'sprint_fwd', rate: 1.2 },
           { start: 3.45, end: 4.25, clip: 'soccer_through_ball', rate: 1.28, offset: 0.2 },
           { start: 4.25, end: 6.0, clip: 'jog_fwd', rate: 1.0 }
         ],
         touchWindows: [
-          { start: 0.98, peak: 1.18, end: 1.42, foot: 'R', type: 'inside', maxWeight: 0.96 },
-          { start: 2.35, peak: 2.55, end: 2.75, foot: 'R', type: 'outside', maxWeight: 0.9 },
-          { start: 3.52, peak: 3.68, end: 3.88, foot: 'R', type: 'inside', maxWeight: 0.98 }
+          { start: 0.92, peak: 1.14, end: 1.42, foot: 'R', type: 'inside', action: 'receive', maxWeight: 0.98 },
+          { start: 2.34, peak: 2.55, end: 2.78, foot: 'R', type: 'outside', action: 'dribble', maxWeight: 0.92 },
+          { start: 3.48, peak: 3.66, end: 3.90, foot: 'R', type: 'inside', action: 'strike', maxWeight: 0.98 }
         ]
       },
       {
@@ -1246,8 +1252,11 @@ export const MULTI_POSITION_SCENARIOS = [
           { t: 6.0, x: 7.8, z: -18.5, yaw: -2.95, crouch: 0.12 }
         ],
         mocapSchedule: [
-          { start: 0.0, end: 0.65, clip: 'soccer_pass_inside', rate: 1.25, offset: 0.2 },
+          { start: 0.0, end: 0.65, clip: 'soccer_power_kick', rate: 1.3, offset: 0.22 },
           { start: 0.65, end: 6.0, clip: 'jog_fwd', rate: 0.9 }
+        ],
+        touchWindows: [
+          { start: 0.0, peak: 0.16, end: 0.38, foot: 'L', type: 'inside', action: 'strike', maxWeight: 0.90 }
         ]
       },
       {
@@ -1301,10 +1310,12 @@ export const MULTI_POSITION_SCENARIOS = [
       }
     ],
     ballTrack: [
-      { t: 0.0, x: 8.35, y: 0.115, z: -12.0 },
-      { t: 1.08, x: 6.55, y: 0.115, z: -17.85 },
-      { t: 2.05, x: 6.1, y: 0.115, z: -21.65 },
-      { t: 3.65, x: 4.85, y: 0.14, z: -28.65 },
+      { t: 0.0, x: 8.42, y: 0.115, z: -11.82 },
+      { t: 0.16, x: 8.32, y: 0.115, z: -12.02 },
+      { t: 1.14, x: 6.42, y: 0.115, z: -17.52, ease: 'linear' },
+      { t: 1.98, x: 6.12, y: 0.115, z: -21.55 },
+      { t: 2.55, x: 5.68, y: 0.115, z: -24.62 },
+      { t: 3.66, x: 4.84, y: 0.14, z: -28.64 },
       { t: 4.35, x: -0.45, y: 0.42, z: -34.35, arcY: 0.35 },
       { t: 6.0, x: -0.65, y: 0.115, z: -35.1 }
     ],
@@ -1323,26 +1334,26 @@ export const MULTI_POSITION_SCENARIOS = [
     starName: '#19 阿方索·戴维斯 Davies',
     durationSec: 12.6,
     title: '左后卫阿方索·戴维斯后场破围 · 75米套边卸高球横传助攻',
-    moveName: '后场撞墙破逼抢 + 左翼超音速套上 + 禁区扛人胸部卸球横敲空门 (LB Full-Pitch Press-Break)',
+    moveName: '后场撞墙破逼抢 + 左翼超音速套上 + 禁区高速顺势左脚卸高球横敲空门 (LB Full-Pitch Press-Break)',
     zoneTag: '本方半场 Z=+18m 至左小禁区 (12.60s 1:1)',
     matchRef: '直播吧德国杯原片 1:1 帧同步：拜仁红衣 #19 戴维斯后场破逼抢奔袭禁区卸球助攻破门',
-    pressureType: '柏林赫塔蓝白间条衫（hertha-striped）中线围堵 + 禁区内右后卫贴身卡位争顶',
+    pressureType: '柏林赫塔蓝白间条衫（hertha-striped）中线围堵 + 禁区内右后卫贴身卡位追防',
     metrics: {
-      touches: '3.4s撞墙出球 + 8.6s胸部卸球 + 10.1s横传',
+      touches: '2.7s撞墙出球 + 8.9s左脚顺势卸球 + 10.1s横传',
       feintAngle: '后场摆脱后无球冲刺 52 米反插肋部',
       scans: '边路套上同步观察中路挑传落点',
-      escapeWindow: '8.5s–10.2s 禁区扛人停球横敲'
+      escapeWindow: '8.6s–10.2s 禁区高速顺势停球横敲'
     },
     keypoints: [
       '0.00s–4.30s：拜仁全红战袍（bayern-red）左后卫 #19 阿方索·戴维斯在本方半场（Z = +16m）面对蓝白间条衫对手逼抢，冷静横向拨球与中场完成二过一撞墙摆脱，跨越中线（Z = +8m）！',
       '4.40s–8.30s：出球后戴维斯开启“加拿大跑车”引擎沿左肋高速无球前插（sprint_fwd），队友在中场送出过顶挑传越过整条蓝白防线！',
-      '8.40s–12.60s：戴维斯杀入禁区左侧，在蓝白后卫贴身挤靠下跃起胸部/脚背柔和卸球（soccer_receive_chest），10.1s 抢在黄衣门将封堵前横敲门前助攻 #9 队友推射空门！'
+      '8.40s–12.60s：戴维斯杀入禁区左侧，在高速奔跑中伸出左脚柔和卸下过顶来球，10.15s 抢在黄衣门将封堵前左脚横敲门前助攻 #9 队友推射空门！'
     ],
     phases: [
       { timeRange: [0.0, 4.3], label: '0.0–4.3s 后场控球撞墙破中线逼抢', desc: '左后卫 #19 戴维斯在本方半场摆脱上抢，分球中场后立即启动高速套边！' },
       { timeRange: [4.3, 8.3], label: '4.3–8.3s 左翼跑车超速无球前插', desc: '从 Z=+6m 一路狂飙反越位直插大禁区左肋，队友默契送出精妙过顶挑传！' },
-      { timeRange: [8.3, 10.4], label: '8.3–10.4s 禁区扛人柔和卸高空球', desc: '8.6s 扛住贴防后卫胸部顺势卸下高球，一步趟向小禁区底线角！' },
-      { timeRange: [10.4, 12.6], label: '10.4–12.6s 倒三角横敲喂饼空门', desc: '10.15s 冷静横推小禁区中路，#9 舒波-莫廷轻松推射空门入网！' }
+      { timeRange: [8.3, 10.4], label: '8.3–10.4s 禁区步点不减速柔和卸高球', desc: '8.9s 高速冲刺中左脚顺势将过顶球卸在身前草皮，一步趟向小禁区底线角！' },
+      { timeRange: [10.4, 12.6], label: '10.4–12.6s 倒三角横敲喂饼空门', desc: '10.15s 冷静左脚横推小禁区中路，#9 舒波-莫廷轻松推射空门入网！' }
     ],
     defaultFocus: [-2.0, 0, -6.0],
     camTrack: [
@@ -1373,17 +1384,16 @@ export const MULTI_POSITION_SCENARIOS = [
         ],
         mocapSchedule: [
           { start: 0.0, end: 2.5, clip: 'jog_fwd', rate: 1.15 },
-          { start: 2.5, end: 3.3, clip: 'soccer_pass_inside', rate: 1.3, offset: 0.2 },
-          { start: 3.3, end: 8.35, clip: 'sprint_fwd', rate: 1.24 },
-          { start: 8.35, end: 9.25, clip: 'soccer_receive_chest', rate: 1.25, offset: 0.05 },
-          { start: 9.25, end: 9.95, clip: 'sprint_cut_r', rate: 1.18 },
-          { start: 9.95, end: 10.75, clip: 'soccer_pass_inside', rate: 1.3, offset: 0.2 },
+          { start: 2.5, end: 3.3, clip: 'soccer_power_kick', rate: 1.32, offset: 0.22 },
+          { start: 3.3, end: 9.15, clip: 'sprint_fwd', rate: 1.24 },
+          { start: 9.15, end: 9.95, clip: 'sprint_cut_r', rate: 1.18 },
+          { start: 9.95, end: 10.75, clip: 'soccer_power_kick', rate: 1.32, offset: 0.22 },
           { start: 10.75, end: 12.6, clip: 'jog_fwd', rate: 0.95 }
         ],
         touchWindows: [
-          { start: 2.55, peak: 2.75, end: 2.95, foot: 'L', type: 'inside', maxWeight: 0.9 },
-          { start: 9.05, peak: 9.25, end: 9.45, foot: 'L', type: 'outside', maxWeight: 0.88 },
-          { start: 10.0, peak: 10.18, end: 10.38, foot: 'L', type: 'inside', maxWeight: 0.96 }
+          { start: 2.50, peak: 2.70, end: 2.94, foot: 'L', type: 'inside', action: 'strike', maxWeight: 0.92 },
+          { start: 8.62, peak: 8.90, end: 9.22, foot: 'L', type: 'inside', action: 'receive', maxWeight: 0.98 },
+          { start: 9.96, peak: 10.15, end: 10.38, foot: 'L', type: 'inside', action: 'strike', maxWeight: 0.96 }
         ]
       },
       {
@@ -1402,8 +1412,12 @@ export const MULTI_POSITION_SCENARIOS = [
         mocapSchedule: [
           { start: 0.0, end: 3.4, clip: 'idle_ready', rate: 1.0 },
           { start: 3.4, end: 6.45, clip: 'jog_fwd', rate: 1.1 },
-          { start: 6.45, end: 7.35, clip: 'soccer_power_kick', rate: 1.22, offset: 0.15 },
+          { start: 6.45, end: 7.35, clip: 'soccer_through_ball', rate: 1.25, offset: 0.18 },
           { start: 7.35, end: 12.6, clip: 'walk_fwd', rate: 0.9 }
+        ],
+        touchWindows: [
+          { start: 3.42, peak: 3.60, end: 3.84, foot: 'R', type: 'inside', action: 'receive', maxWeight: 0.88 },
+          { start: 6.52, peak: 6.75, end: 7.02, foot: 'R', type: 'instep', action: 'strike', maxWeight: 0.94 }
         ]
       },
       {
@@ -1428,7 +1442,7 @@ export const MULTI_POSITION_SCENARIOS = [
           { start: 11.35, end: 12.6, clip: 'jog_fwd', rate: 0.95 }
         ],
         touchWindows: [
-          { start: 10.72, peak: 10.9, end: 11.1, foot: 'R', type: 'inside', maxWeight: 0.96 }
+          { start: 10.70, peak: 10.88, end: 11.10, foot: 'R', type: 'inside', action: 'strike', maxWeight: 0.96 }
         ]
       },
       {
@@ -1480,14 +1494,15 @@ export const MULTI_POSITION_SCENARIOS = [
     ],
     ballTrack: [
       { t: 0.0, x: -5.3, y: 0.115, z: 16.0 },
-      { t: 2.7, x: -2.0, y: 0.115, z: 8.4 },
-      { t: 3.6, x: 5.6, y: 0.115, z: 2.2 },
-      { t: 6.75, x: 4.1, y: 0.2, z: -8.9 },
-      { t: 7.7, x: -1.2, y: 2.85, z: -16.0, arcY: 1.45 }, // chipped lofted pass over defense!
-      { t: 8.68, x: -6.05, y: 1.22, z: -22.75 }, // Davies chest control!
-      { t: 9.3, x: -5.85, y: 0.115, z: -24.8 },
-      { t: 10.15, x: -5.25, y: 0.115, z: -27.95 },
-      { t: 10.88, x: -0.35, y: 0.115, z: -29.45 },
+      { t: 2.7, x: -2.02, y: 0.115, z: 8.42 },
+      { t: 3.6, x: 5.62, y: 0.115, z: 2.22, ease: 'linear' },
+      { t: 6.75, x: 4.10, y: 0.18, z: -8.88 },
+      { t: 7.75, x: -1.2, y: 2.75, z: -16.2, arcY: 1.35 }, // chipped lofted pass over defense!
+      { t: 8.55, x: -5.85, y: 1.08, z: -22.1 },
+      { t: 8.90, x: -6.02, y: 0.34, z: -23.72 }, // Davies in-stride left-foot cushion!
+      { t: 9.35, x: -5.78, y: 0.115, z: -25.3 },
+      { t: 10.15, x: -5.22, y: 0.115, z: -27.95 },
+      { t: 10.88, x: -0.35, y: 0.115, z: -29.45, ease: 'linear' },
       { t: 11.45, x: 0.65, y: 0.22, z: -34.45, ease: 'linear' },
       { t: 12.6, x: 0.75, y: 0.115, z: -35.2 }
     ],
@@ -1561,10 +1576,10 @@ export const MULTI_POSITION_SCENARIOS = [
           { start: 9.05, end: 11.0, clip: 'sprint_fwd', rate: 1.05 }
         ],
         touchWindows: [
-          { start: 2.2, peak: 2.4, end: 2.6, foot: 'R', type: 'inside', maxWeight: 0.86 },
-          { start: 4.7, peak: 4.92, end: 5.15, foot: 'R', type: 'outside', maxWeight: 0.92 },
-          { start: 7.1, peak: 7.32, end: 7.55, foot: 'R', type: 'inside', maxWeight: 0.92 },
-          { start: 8.42, peak: 8.6, end: 8.82, foot: 'R', type: 'instep', maxWeight: 0.98 }
+          { start: 2.15, peak: 2.36, end: 2.60, foot: 'R', type: 'inside', action: 'receive', maxWeight: 0.94 },
+          { start: 4.68, peak: 4.90, end: 5.14, foot: 'R', type: 'outside', action: 'dribble', maxWeight: 0.92 },
+          { start: 7.06, peak: 7.28, end: 7.52, foot: 'R', type: 'inside', action: 'dribble', maxWeight: 0.92 },
+          { start: 8.36, peak: 8.56, end: 8.80, foot: 'R', type: 'instep', action: 'strike', maxWeight: 0.98 }
         ]
       },
       {
@@ -1584,6 +1599,9 @@ export const MULTI_POSITION_SCENARIOS = [
         mocapSchedule: [
           { start: 0.0, end: 1.15, clip: 'soccer_pass_inside', rate: 1.2, offset: 0.15 },
           { start: 1.15, end: 11.0, clip: 'walk_fwd', rate: 0.9 }
+        ],
+        touchWindows: [
+          { start: 0.08, peak: 0.28, end: 0.52, foot: 'R', type: 'inside', action: 'strike', maxWeight: 0.90 }
         ]
       },
       {
@@ -1660,11 +1678,12 @@ export const MULTI_POSITION_SCENARIOS = [
       }
     ],
     ballTrack: [
-      { t: 0.0, x: -1.1, y: 0.115, z: 5.0 },
-      { t: 2.35, x: 6.25, y: 0.115, z: 0.55 },
-      { t: 4.85, x: 2.05, y: 0.115, z: -4.45 },
-      { t: 7.25, x: -1.85, y: 0.115, z: -8.55 },
-      { t: 8.58, x: -1.48, y: 0.14, z: -10.75 },
+      { t: 0.0, x: -1.15, y: 0.115, z: 5.05 },
+      { t: 0.28, x: -0.82, y: 0.115, z: 4.92 },
+      { t: 2.36, x: 6.22, y: 0.115, z: 0.55, ease: 'linear' },
+      { t: 4.90, x: 1.98, y: 0.115, z: -4.48 },
+      { t: 7.28, x: -1.85, y: 0.115, z: -8.55 },
+      { t: 8.56, x: -1.52, y: 0.13, z: -10.66 },
       { t: 9.52, x: 2.85, y: 0.92, z: -34.35, arcY: 0.35, ease: 'linear' }, // blistering 28m driven rocket!
       { t: 11.0, x: 3.05, y: 0.115, z: -35.2 }
     ],

@@ -383,18 +383,29 @@ function sampleMocapSchedule(schedule, tSec) {
 }
 
 /**
- * Evaluates annotated ball-touch windows for exact foot telemetry.
+ * Evaluates annotated ball-touch windows with normalized phase `u ∈ [0, 1]`
+ * (`0..0.5` pre-contact reach/backswing, `0.5` exact ball contact, `0.5..1.0` soft cushion/follow-through)
+ * and C1 raised-cosine weight (`0` slope at entry, peak, and exit).
  */
 function sampleTouchWindows(windows, tSec) {
   if (!windows || windows.length === 0) return null;
   for (const w of windows) {
     if (tSec >= w.start && tSec <= w.end) {
-      const u = (tSec - w.start) / Math.max(0.05, w.end - w.start);
-      const bell = Math.sin(clamp01(u) * Math.PI);
+      const peak = w.peak ?? (w.start + w.end) * 0.5;
+      let u;
+      if (tSec <= peak) {
+        u = 0.5 * clamp01((tSec - w.start) / Math.max(0.04, peak - w.start));
+      } else {
+        u = 0.5 + 0.5 * clamp01((tSec - peak) / Math.max(0.04, w.end - peak));
+      }
+      const bell = 0.5 - 0.5 * Math.cos(2 * Math.PI * clamp01(u));
       return {
         foot: w.foot || 'R',
         type: w.type || 'inside',
-        weight: clamp01(bell * bell * (w.maxWeight ?? 1.0))
+        action: w.action || null,
+        u,
+        phase: u < 0.5 ? 'reach' : 'follow',
+        weight: clamp01(bell * (w.maxWeight ?? 1.0))
       };
     }
   }
@@ -440,6 +451,14 @@ export function evaluateScenarioAtTime(scenario, tSec) {
   const inv2Dt = 1 / Math.max(0.005, tNext - tPrev);
 
   const ballState = sampleSpatialKeyframes(scenario.ballTrack, clampedT);
+  const ballPrev = sampleSpatialKeyframes(scenario.ballTrack, tPrev);
+  const ballNext = sampleSpatialKeyframes(scenario.ballTrack, tNext);
+  const ballPos = { x: ballState.x, y: ballState.y ?? 0.115, z: ballState.z };
+  const ballVel = {
+    vx: (ballNext.x - ballPrev.x) * inv2Dt,
+    vy: ((ballNext.y ?? 0.115) - (ballPrev.y ?? 0.115)) * inv2Dt,
+    vz: (ballNext.z - ballPrev.z) * inv2Dt
+  };
 
   let activePhaseIdx = 0;
   for (let i = 0; i < scenario.phases.length; i++) {
@@ -516,7 +535,9 @@ export function evaluateScenarioAtTime(scenario, tSec) {
       secondaryClip: activeSecondary,
       secondaryClipTime: mocap ? mocap.secondaryClipTime : 0,
       blendWeight: mocap ? mocap.blendWeight : 0,
-      ballTouch
+      ballTouch,
+      ballPos,
+      ballVel
     };
   });
 
@@ -555,20 +576,20 @@ const PEDRI_SCENARIOS = [
     matchRef: '直播吧原片 1:1 帧同步：2025-04-23 巴萨 vs 马略卡 (4.00s 单镜头特写)',
     pressureType: '黄衣 #30 正后方贴背抢位 + #5 侧翼封堵',
     metrics: {
-      touches: '1.88s 右足内侧顺球',
+      touches: '2.04s 右足内侧凌空顺球',
       feintAngle: '180° 敞髋顺时针半转身',
       scans: '0.4s–1.4s 两次回头扫描',
       escapeWindow: '1.85s–2.55s (0.70s)'
     },
     keypoints: [
-      '0.00s–1.75s：左路横传滚来，#8 佩德里迎球回撤（walk_back）并连续扭头扫描，感知马略卡黄衣 #30 正从右后方紧贴顶防。',
-      '1.85s–2.55s：来球微弹瞬间，佩德里左臂架开 #30，调用 120Hz 半转身动捕（soccer_half_turn_180）敞开右髋用右脚内侧顺球转身！',
+      '0.00s–1.75s：后场左路高空球吊入中圈前沿，#8 佩德里迎球回撤（walk_back）并连续扭头扫描，感知马略卡黄衣 #30 正从右后方紧贴顶防。',
+      '1.85s–2.55s：高空球从右肩上方坠落瞬间，佩德里左腿稳扎支撑、左臂架开 #30，敞开右髋抬起右脚内侧（y = 0.35m 足踝IK凌空缓冲）把球柔和卸顺并 180° 半转身！',
       '2.60s–4.00s：马略卡 #30 重心前冲刹不住车被彻底甩在身后，佩德里切换爆发冲刺（sprint_fwd）向右推进打穿首线。'
     ],
     phases: [
-      { timeRange: [0.0, 1.2], label: '0.0–1.2s 回撤预扫描', desc: '左路传球滚入镜头，佩德里回撤迎球并扭头扫描身后黄衣 #30 贴防路线。' },
-      { timeRange: [1.2, 1.85], label: '1.2–1.85s 贴背抗压沉髋', desc: '马略卡 #30 紧贴后背上抢，佩德里降重心左臂架开防守人准备接弹地球。' },
-      { timeRange: [1.85, 2.65], label: '1.85–2.65s 顺球半转身', desc: '右足内侧精准贴球缓冲（足踝IK锁定），顺势敞开髋部 180° 半转身抹过 #30！' },
+      { timeRange: [0.0, 1.2], label: '0.0–1.2s 迎高球回撤扫描', desc: '左路高空球飞入镜头，佩德里回撤卡位并扭头扫描身后黄衣 #30 贴防路线。' },
+      { timeRange: [1.2, 1.85], label: '1.2–1.85s 贴背抗压沉髋', desc: '马略卡 #30 紧贴后背上抢，佩德里降重心左臂架开防守人预判高球落点。' },
+      { timeRange: [1.85, 2.65], label: '1.85–2.65s 敞髋凌空顺球转身', desc: '右髋外展端平右足内侧（y=0.35m 足踝IK锁定）凌空卸球缓冲，顺势 180° 半转身抹过 #30！' },
       { timeRange: [2.65, 4.0], label: '2.65–4.0s 爆发推进甩开', desc: '#30 失位踉跄留在原地，佩德里带球向右高速突进完成破首线摆脱。' }
     ],
     defaultFocus: [1.8, 0, 6.2],
@@ -589,20 +610,20 @@ const PEDRI_SCENARIOS = [
         keyframes: [
           { t: 0.0, x: 1.1, z: 7.4, yaw: 0.12, scanYaw: -1.15, crouch: 0.15 },
           { t: 0.95, x: 1.15, z: 8.2, yaw: 0.08, scanYaw: 1.05, crouch: 0.25 },
-          { t: 1.78, x: 1.25, z: 8.75, yaw: 0.15, scanYaw: 0.0, crouch: 0.48, shieldSide: 'L', leanRoll: 0.12 },
+          { t: 1.78, x: 1.28, z: 8.68, yaw: 0.18, scanYaw: 0.0, crouch: 0.46, shieldSide: 'L', leanRoll: 0.10 },
           { t: 2.25, x: 1.78, z: 8.15, yaw: -1.65, crouch: 0.42, shieldSide: 'L', leanRoll: -0.14 },
           { t: 2.68, x: 2.25, z: 6.75, yaw: -2.98, crouch: 0.22 },
           { t: 4.0, x: 2.85, z: 0.65, yaw: -3.04, crouch: 0.12 }
         ],
         mocapSchedule: [
           { start: 0.0, end: 1.15, clip: 'walk_back', rate: 1.05 },
-          { start: 1.15, end: 1.80, clip: 'crouch_strafe_l', rate: 0.95 },
-          { start: 1.80, end: 2.62, clip: 'soccer_half_turn_180', rate: 1.35, offset: 0.25 },
+          { start: 1.15, end: 1.78, clip: 'crouch_jockey_back', rate: 0.92 },
+          { start: 1.78, end: 2.62, clip: 'soccer_half_turn_180', rate: 1.35, offset: 0.22 },
           { start: 2.62, end: 4.0, clip: 'sprint_fwd', rate: 1.08 }
         ],
         touchWindows: [
-          { start: 1.82, peak: 2.02, end: 2.34, foot: 'R', type: 'inside', maxWeight: 0.95 },
-          { start: 2.85, peak: 3.02, end: 3.22, foot: 'R', type: 'outside', maxWeight: 0.78 }
+          { start: 1.74, peak: 2.04, end: 2.42, foot: 'R', type: 'inside', action: 'receive', maxWeight: 0.98 },
+          { start: 2.82, peak: 3.02, end: 3.26, foot: 'R', type: 'outside', action: 'dribble', maxWeight: 0.84 }
         ]
       },
       {
@@ -654,27 +675,32 @@ const PEDRI_SCENARIOS = [
         number: '5',
         shirtName: 'I. MARTINEZ',
         hasBeard: true,
-        label: '#5 伊尼戈 (左路直传)',
+        label: '#5 伊尼戈 (左路挑传)',
         keyframes: [
           { t: 0.0, x: 0.8, z: 16.8, yaw: -3.08 },
           { t: 0.5, x: 0.9, z: 16.2, yaw: -3.08 },
           { t: 4.0, x: 1.1, z: 13.8, yaw: -3.08 }
         ],
         mocapSchedule: [
-          { start: 0.0, end: 0.65, clip: 'soccer_pass_inside', rate: 1.2, offset: 0.4 },
+          { start: 0.0, end: 0.65, clip: 'soccer_power_kick', rate: 1.2, offset: 0.2 },
           { start: 0.65, end: 4.0, clip: 'walk_fwd', rate: 0.9 }
+        ],
+        touchWindows: [
+          { start: 0.0, peak: 0.20, end: 0.45, foot: 'L', type: 'instep', action: 'strike', maxWeight: 0.9 }
         ]
       }
     ],
     ballTrack: [
-      { t: 0.0, x: 0.85, y: 0.115, z: 16.2 },
-      { t: 1.35, x: 1.18, y: 0.26, z: 10.6, arcY: 0.14 },
-      { t: 1.92, x: 1.42, y: 0.19, z: 8.55 },
-      { t: 2.38, x: 2.08, y: 0.115, z: 7.45 },
-      { t: 3.0, x: 2.52, y: 0.115, z: 4.95 },
+      { t: 0.0, x: 0.86, y: 0.115, z: 16.36 },
+      { t: 0.20, x: 0.90, y: 0.14, z: 16.22 },
+      { t: 1.08, x: 1.22, y: 2.68, z: 11.45, arcY: 0.55 },
+      { t: 1.66, x: 1.46, y: 1.32, z: 9.32, ease: 'linear' },
+      { t: 2.04, x: 1.72, y: 0.35, z: 8.42, ease: 'linear' },
+      { t: 2.44, x: 2.15, y: 0.115, z: 7.25 },
+      { t: 3.02, x: 2.54, y: 0.115, z: 4.88 },
       { t: 4.0, x: 3.02, y: 0.115, z: -0.15 }
     ],
-    pedriRibbon: [[1.1, 0.06, 7.4], [1.25, 0.06, 8.75], [1.85, 0.06, 8.1], [2.4, 0.06, 6.2], [2.85, 0.06, 0.65]],
+    pedriRibbon: [[1.1, 0.06, 7.4], [1.28, 0.06, 8.68], [1.85, 0.06, 8.1], [2.4, 0.06, 6.2], [2.85, 0.06, 0.65]],
     overshootRibbon: [[0.65, 0.05, 5.2], [0.62, 0.05, 8.55], [0.38, 0.05, 9.25]]
   },
 
@@ -724,7 +750,7 @@ const PEDRI_SCENARIOS = [
         label: '#8 佩德里 Pedri',
         keyframes: [
           { t: 0.0, x: 5.2, z: 5.8, yaw: 0.25, scanYaw: 0.85, crouch: 0.15 },
-          { t: 1.45, x: 4.6, z: 6.4, yaw: -0.15, scanYaw: -0.65, crouch: 0.22 },
+          { t: 1.45, x: 4.6, z: 6.4, yaw: -0.15, scanYaw: -0.65, crouch: 0.28 },
           { t: 2.85, x: 4.05, z: 7.25, yaw: -0.25, crouch: 0.52, leanRoll: -0.12 },
           { t: 3.32, x: 3.12, z: 8.05, yaw: -0.45, crouch: 0.48, leanRoll: 0.18 },
           { t: 3.95, x: 2.25, z: 9.95, yaw: -0.32, crouch: 0.25 },
@@ -732,7 +758,7 @@ const PEDRI_SCENARIOS = [
           { t: 6.5, x: -0.15, z: 14.3, yaw: -0.95, crouch: 0.15 }
         ],
         mocapSchedule: [
-          { start: 0.0, end: 1.55, clip: 'idle_scan', rate: 1.0 },
+          { start: 0.0, end: 1.55, clip: 'idle_ready', rate: 1.0 },
           { start: 1.55, end: 2.95, clip: 'crouch_strafe_r', rate: 0.95 },
           { start: 2.95, end: 3.62, clip: 'soccer_crossover_feint', rate: 1.45, offset: 0.35 },
           { start: 3.62, end: 4.25, clip: 'sprint_cut_l', rate: 1.12 },
@@ -740,10 +766,10 @@ const PEDRI_SCENARIOS = [
           { start: 5.35, end: 6.5, clip: 'soccer_pass_inside', rate: 1.08, offset: 0.15 }
         ],
         touchWindows: [
-          { start: 1.35, peak: 1.52, end: 1.72, foot: 'R', type: 'inside', maxWeight: 0.8 },
-          { start: 3.02, peak: 3.18, end: 3.35, foot: 'R', type: 'inside', maxWeight: 0.95 },
-          { start: 3.38, peak: 3.54, end: 3.75, foot: 'L', type: 'inside', maxWeight: 0.95 },
-          { start: 5.42, peak: 5.65, end: 5.92, foot: 'R', type: 'inside', maxWeight: 0.92 }
+          { start: 1.28, peak: 1.50, end: 1.76, foot: 'R', type: 'inside', action: 'receive', maxWeight: 0.92 },
+          { start: 2.98, peak: 3.16, end: 3.34, foot: 'R', type: 'inside', action: 'dribble', maxWeight: 0.96 },
+          { start: 3.36, peak: 3.54, end: 3.76, foot: 'L', type: 'inside', action: 'dribble', maxWeight: 0.96 },
+          { start: 5.30, peak: 5.52, end: 5.80, foot: 'R', type: 'inside', action: 'strike', maxWeight: 0.94 }
         ]
       },
       {
@@ -808,10 +834,10 @@ const PEDRI_SCENARIOS = [
     ],
     ballTrack: [
       { t: 0.0, x: 7.4, y: 0.115, z: 2.6 },
-      { t: 1.42, x: 4.65, y: 0.115, z: 6.52 },
-      { t: 2.88, x: 4.02, y: 0.115, z: 7.42 },
-      { t: 3.22, x: 3.08, y: 0.115, z: 8.12 },
-      { t: 3.68, x: 2.42, y: 0.115, z: 9.55 },
+      { t: 1.48, x: 4.46, y: 0.115, z: 6.66 },
+      { t: 2.88, x: 3.98, y: 0.115, z: 7.48 },
+      { t: 3.18, x: 3.32, y: 0.115, z: 8.02 },
+      { t: 3.54, x: 2.75, y: 0.115, z: 8.95 },
       { t: 5.52, x: 0.25, y: 0.115, z: 13.95 },
       { t: 6.5, x: -5.35, y: 0.115, z: 16.55 }
     ],
@@ -878,9 +904,10 @@ const PEDRI_SCENARIOS = [
           { start: 4.42, end: 5.6, clip: 'soccer_pass_inside', rate: 1.1, offset: 0.15 }
         ],
         touchWindows: [
-          { start: 1.80, peak: 2.05, end: 2.32, foot: 'R', type: 'sole', maxWeight: 0.95 },
-          { start: 2.42, peak: 2.68, end: 3.02, foot: 'L', type: 'sole', maxWeight: 0.95 },
-          { start: 4.52, peak: 4.75, end: 5.05, foot: 'R', type: 'inside', maxWeight: 0.9 }
+          { start: 1.32, peak: 1.52, end: 1.72, foot: 'R', type: 'inside', action: 'receive', maxWeight: 0.88 },
+          { start: 1.80, peak: 2.05, end: 2.32, foot: 'R', type: 'sole', action: 'dribble', maxWeight: 0.96 },
+          { start: 2.42, peak: 2.68, end: 3.02, foot: 'L', type: 'sole', action: 'dribble', maxWeight: 0.96 },
+          { start: 4.35, peak: 4.55, end: 4.82, foot: 'R', type: 'inside', action: 'strike', maxWeight: 0.92 }
         ]
       },
       {
@@ -955,10 +982,10 @@ const PEDRI_SCENARIOS = [
     ],
     ballTrack: [
       { t: 0.0, x: 5.2, y: 0.115, z: 11.4 },
-      { t: 1.48, x: 1.78, y: 0.115, z: 6.15 },
-      { t: 2.05, x: 1.38, y: 0.115, z: 5.32 },
-      { t: 2.75, x: 0.55, y: 0.115, z: 4.45 },
-      { t: 4.55, x: -1.65, y: 0.115, z: 1.95 },
+      { t: 1.50, x: 1.66, y: 0.115, z: 5.95 },
+      { t: 2.05, x: 1.32, y: 0.115, z: 5.28 },
+      { t: 2.72, x: 0.52, y: 0.115, z: 4.42 },
+      { t: 4.55, x: -1.72, y: 0.115, z: 1.88 },
       { t: 5.6, x: -8.85, y: 0.115, z: -1.15 }
     ],
     pedriRibbon: [[2.2, 0.06, 7.4], [1.75, 0.06, 6.25], [1.15, 0.06, 5.25], [0.25, 0.06, 4.15], [-1.45, 0.06, 2.15]],
@@ -1025,8 +1052,8 @@ const PEDRI_SCENARIOS = [
           { start: 4.95, end: 6.434, clip: 'soccer_pass_inside', rate: 1.05, offset: 0.12 }
         ],
         touchWindows: [
-          { start: 3.02, peak: 3.25, end: 3.55, foot: 'R', type: 'inside', maxWeight: 0.96 },
-          { start: 5.02, peak: 5.26, end: 5.56, foot: 'R', type: 'inside', maxWeight: 0.92 }
+          { start: 3.00, peak: 3.24, end: 3.54, foot: 'R', type: 'inside', action: 'dribble', maxWeight: 0.96 },
+          { start: 4.92, peak: 5.12, end: 5.38, foot: 'R', type: 'inside', action: 'strike', maxWeight: 0.94 }
         ]
       },
       {
@@ -1162,15 +1189,15 @@ const PEDRI_SCENARIOS = [
           { t: 10.534, x: 3.6, z: -10.8, yaw: -3.02, crouch: 0.1 }
         ],
         mocapSchedule: [
-          { start: 0.0, end: 2.15, clip: 'idle_scan', rate: 1.0 },
+          { start: 0.0, end: 2.15, clip: 'idle_ready', rate: 1.0 },
           { start: 2.15, end: 3.68, clip: 'jog_fwd', rate: 1.05 },
           { start: 3.68, end: 4.88, clip: 'walk_fwd', rate: 0.88 },
           { start: 4.88, end: 5.75, clip: 'soccer_through_ball', rate: 1.28, offset: 0.25 },
           { start: 5.75, end: 10.534, clip: 'walk_fwd', rate: 0.95 }
         ],
         touchWindows: [
-          { start: 2.05, peak: 2.22, end: 2.42, foot: 'R', type: 'inside', maxWeight: 0.8 },
-          { start: 4.95, peak: 5.15, end: 5.42, foot: 'R', type: 'inside', maxWeight: 0.98 }
+          { start: 1.96, peak: 2.18, end: 2.44, foot: 'R', type: 'inside', action: 'receive', maxWeight: 0.92 },
+          { start: 4.86, peak: 5.05, end: 5.34, foot: 'R', type: 'inside', action: 'strike', maxWeight: 0.98 }
         ]
       },
       {
@@ -1195,13 +1222,14 @@ const PEDRI_SCENARIOS = [
         mocapSchedule: [
           { start: 0.0, end: 4.85, clip: 'jog_fwd', rate: 0.85 },
           { start: 4.85, end: 7.70, clip: 'sprint_fwd', rate: 1.15 },
-          { start: 7.70, end: 8.82, clip: 'soccer_cut_left_90', rate: 1.12, offset: 0.05 },
-          { start: 8.82, end: 9.65, clip: 'soccer_shot_drive', rate: 1.25, offset: 0.25 },
-          { start: 9.65, end: 10.534, clip: 'jog_fwd', rate: 1.0 }
+          { start: 7.70, end: 8.75, clip: 'soccer_cut_left_90', rate: 1.12, offset: 0.05 },
+          { start: 8.75, end: 9.60, clip: 'soccer_power_kick', rate: 1.25, offset: 0.15 },
+          { start: 9.60, end: 10.534, clip: 'jog_fwd', rate: 1.0 }
         ],
         touchWindows: [
-          { start: 7.75, peak: 8.05, end: 8.35, foot: 'L', type: 'inside', maxWeight: 0.9 },
-          { start: 8.92, peak: 9.12, end: 9.35, foot: 'L', type: 'inside', maxWeight: 0.95 }
+          { start: 6.12, peak: 6.32, end: 6.55, foot: 'L', type: 'inside', action: 'receive', maxWeight: 0.90 },
+          { start: 7.72, peak: 7.98, end: 8.26, foot: 'L', type: 'inside', action: 'dribble', maxWeight: 0.94 },
+          { start: 8.78, peak: 8.98, end: 9.24, foot: 'L', type: 'inside', action: 'strike', maxWeight: 0.98 }
         ]
       },
       {
@@ -1271,12 +1299,12 @@ const PEDRI_SCENARIOS = [
     ],
     ballTrack: [
       { t: 0.0, x: -4.2, y: 0.115, z: 15.2 },
-      { t: 2.12, x: 2.25, y: 0.115, z: 6.15 },
+      { t: 2.15, x: 2.26, y: 0.115, z: 6.08 },
       { t: 3.65, x: 2.88, y: 0.115, z: -1.15 },
       { t: 5.05, x: 3.28, y: 0.115, z: -4.65 },
-      { t: 6.35, x: 6.95, y: 0.115, z: -21.2 },
-      { t: 7.72, x: 4.85, y: 0.115, z: -25.1 },
-      { t: 8.98, x: 1.55, y: 0.115, z: -26.2 },
+      { t: 6.32, x: 6.95, y: 0.115, z: -21.25 },
+      { t: 7.98, x: 3.85, y: 0.115, z: -25.55 },
+      { t: 8.98, x: 1.48, y: 0.115, z: -26.28 },
       { t: 9.72, x: -2.75, y: 1.18, z: -34.35, ease: 'linear' },
       { t: 10.534, x: -2.85, y: 0.115, z: -35.1 }
     ],
@@ -1297,7 +1325,7 @@ const PEDRI_SCENARIOS = [
     matchRef: '直播吧原片 1:1 帧同步：瓦伦西亚 vs 巴萨 (8.83s 吸怪撞墙配合破门)',
     pressureType: '瓦伦西亚白衣黑裤 #18 + #8 + #3 中路收缩包围笼',
     metrics: {
-      touches: '4.55s 斜敲 + 7.05s 推射',
+      touches: '4.55s 斜敲 + 6.85s 推射',
       feintAngle: '吸引 3 名防守人向球坍缩',
       scans: '提前锁定弧顶 #20 奥尔莫',
       escapeWindow: '4.50s–6.20s 撞墙破笼'
@@ -1305,13 +1333,13 @@ const PEDRI_SCENARIOS = [
     keypoints: [
       '0.00s–2.55s：左路横传找到中路 #8 佩德里，瓦伦西亚白衣黑裤（valencia-white）中场防线严阵以待。',
       '2.60s–4.40s：佩德里不盲目回传，而是斜向带球切入包围圈核心（jog_fwd），像磁铁一样把瓦伦西亚三名球员全部吸拢收窄！',
-      '4.45s–7.70s：包围笼合拢瞬间，4.55s 一脚斜传找到弧顶 #20 奥尔莫并高速无球前插（sprint_fwd），接奥尔莫直塞反越位杀入禁区，7.05s 冷静低射破门！'
+      '4.45s–7.70s：包围笼合拢瞬间，4.55s 一脚斜传找到弧顶 #20 奥尔莫并高速无球前插（sprint_fwd），接奥尔莫直塞反越位杀入禁区，6.85s 冷静低射破门！'
     ],
     phases: [
       { timeRange: [0.0, 2.55], label: '0.0–2.55s 左路横传接球', desc: '佩德里在中场肋部接左路来球，抬头观察弧顶支点 #20 奥尔莫站位。' },
       { timeRange: [2.55, 4.45], label: '2.55–4.45s 斜向带球吸怪', desc: '主动带球切向中路腹地，诱使三名白衣黑裤防守人同时向佩德里收缩合拢。' },
       { timeRange: [4.45, 6.65], label: '4.45–6.65s 奥尔莫撞墙破笼', desc: '4.55s 斜敲奥尔莫后立即无球冲刺穿笼，奥尔莫顺势送出贴地直塞回做！' },
-      { timeRange: [6.65, 8.834], label: '6.65–8.83s 反越位低射破门', desc: '打穿整条防线单刀面对门将，7.05s 推射远角入网！' }
+      { timeRange: [6.65, 8.834], label: '6.65–8.83s 反越位低射破门', desc: '打穿整条防线单刀面对门将，6.85s 推射远角入网！' }
     ],
     defaultFocus: [1.0, 0, -14.0],
     camTrack: [
@@ -1330,7 +1358,7 @@ const PEDRI_SCENARIOS = [
         label: '#8 佩德里 Pedri',
         keyframes: [
           { t: 0.0, x: -3.2, z: -0.8, yaw: -1.8, scanYaw: -0.75, crouch: 0.15 },
-          { t: 2.35, x: -2.2, z: -2.2, yaw: -2.55, scanYaw: 0.55, crouch: 0.22 },
+          { t: 2.35, x: -2.2, z: -2.2, yaw: -2.55, scanYaw: 0.55, crouch: 0.24 },
           { t: 4.42, x: 2.6, z: -10.4, yaw: -2.85, crouch: 0.34 },
           { t: 5.15, x: 3.0, z: -12.8, yaw: -3.02, crouch: 0.25 },
           { t: 6.75, x: 2.35, z: -22.6, yaw: -3.05, crouch: 0.28 },
@@ -1338,17 +1366,17 @@ const PEDRI_SCENARIOS = [
           { t: 8.834, x: 3.4, z: -26.2, yaw: -2.1, crouch: 0.1 }
         ],
         mocapSchedule: [
-          { start: 0.0, end: 2.35, clip: 'idle_scan', rate: 1.0 },
-          { start: 2.35, end: 4.40, clip: 'jog_fwd', rate: 1.12 },
-          { start: 4.40, end: 5.05, clip: 'soccer_pass_inside', rate: 1.35, offset: 0.2 },
-          { start: 5.05, end: 6.82, clip: 'sprint_fwd', rate: 1.16 },
-          { start: 6.82, end: 7.65, clip: 'soccer_shot_drive', rate: 1.25, offset: 0.25 },
-          { start: 7.65, end: 8.834, clip: 'jog_fwd', rate: 1.0 }
+          { start: 0.0, end: 2.35, clip: 'idle_ready', rate: 1.0 },
+          { start: 2.35, end: 4.35, clip: 'jog_fwd', rate: 1.12 },
+          { start: 4.35, end: 4.98, clip: 'soccer_pass_inside', rate: 1.35, offset: 0.2 },
+          { start: 4.98, end: 6.62, clip: 'sprint_fwd', rate: 1.16 },
+          { start: 6.62, end: 7.45, clip: 'soccer_shot_drive', rate: 1.25, offset: 0.22 },
+          { start: 7.45, end: 8.834, clip: 'jog_fwd', rate: 1.0 }
         ],
         touchWindows: [
-          { start: 2.25, peak: 2.42, end: 2.62, foot: 'R', type: 'inside', maxWeight: 0.8 },
-          { start: 4.48, peak: 4.66, end: 4.90, foot: 'R', type: 'inside', maxWeight: 0.95 },
-          { start: 6.92, peak: 7.12, end: 7.36, foot: 'R', type: 'inside', maxWeight: 0.96 }
+          { start: 2.15, peak: 2.38, end: 2.64, foot: 'R', type: 'inside', action: 'receive', maxWeight: 0.92 },
+          { start: 4.36, peak: 4.55, end: 4.78, foot: 'R', type: 'inside', action: 'strike', maxWeight: 0.95 },
+          { start: 6.66, peak: 6.85, end: 7.12, foot: 'R', type: 'inside', action: 'strike', maxWeight: 0.96 }
         ]
       },
       {
@@ -1371,6 +1399,10 @@ const PEDRI_SCENARIOS = [
           { start: 4.85, end: 5.45, clip: 'soccer_half_turn_180', rate: 1.45, offset: 0.35 },
           { start: 5.45, end: 6.25, clip: 'soccer_through_ball', rate: 1.3, offset: 0.3 },
           { start: 6.25, end: 8.834, clip: 'jog_fwd', rate: 0.95 }
+        ],
+        touchWindows: [
+          { start: 4.98, peak: 5.15, end: 5.36, foot: 'R', type: 'inside', action: 'receive', maxWeight: 0.94 },
+          { start: 5.48, peak: 5.66, end: 5.90, foot: 'R', type: 'inside', action: 'strike', maxWeight: 0.95 }
         ]
       },
       {
@@ -1438,11 +1470,11 @@ const PEDRI_SCENARIOS = [
     ],
     ballTrack: [
       { t: 0.0, x: -9.5, y: 0.115, z: 4.2 },
-      { t: 2.35, x: -2.05, y: 0.115, z: -2.45 },
-      { t: 4.55, x: 2.55, y: 0.115, z: -10.8 },
-      { t: 5.15, x: 0.78, y: 0.115, z: -15.45 },
-      { t: 5.65, x: 1.05, y: 0.115, z: -16.35 },
-      { t: 6.85, x: 2.28, y: 0.115, z: -23.1 },
+      { t: 2.35, x: -2.02, y: 0.115, z: -2.48 },
+      { t: 4.55, x: 2.52, y: 0.115, z: -11.05 },
+      { t: 5.15, x: 0.78, y: 0.115, z: -15.32 },
+      { t: 5.65, x: 1.05, y: 0.115, z: -16.42 },
+      { t: 6.85, x: 2.28, y: 0.115, z: -23.15 },
       { t: 7.72, x: -2.55, y: 0.22, z: -34.35, ease: 'linear' },
       { t: 8.834, x: -2.65, y: 0.115, z: -35.1 }
     ],
@@ -1506,13 +1538,13 @@ const PEDRI_SCENARIOS = [
         mocapSchedule: [
           { start: 0.0, end: 1.92, clip: 'jog_fwd', rate: 1.05 },
           { start: 1.92, end: 3.35, clip: 'soccer_turf_hand_shield', rate: 1.35, offset: 0.05 },
-          { start: 3.35, end: 3.98, clip: 'crouch_jockey_fwd', rate: 1.1 },
-          { start: 3.98, end: 4.48, clip: 'soccer_pass_inside', rate: 1.45, offset: 0.25 },
-          { start: 4.48, end: 5.8, clip: 'sprint_cut_l', rate: 1.15 }
+          { start: 3.35, end: 3.92, clip: 'crouch_jockey_fwd', rate: 1.1 },
+          { start: 3.92, end: 4.45, clip: 'soccer_pass_inside', rate: 1.45, offset: 0.25 },
+          { start: 4.45, end: 5.8, clip: 'sprint_cut_l', rate: 1.15 }
         ],
         touchWindows: [
           { start: 2.15, peak: 2.65, end: 3.15, foot: 'R', type: 'sole', maxWeight: 0.88 },
-          { start: 4.02, peak: 4.18, end: 4.38, foot: 'R', type: 'inside', maxWeight: 0.96 }
+          { start: 3.92, peak: 4.10, end: 4.30, foot: 'R', type: 'inside', action: 'strike', maxWeight: 0.96 }
         ]
       },
       {
@@ -1563,8 +1595,9 @@ const PEDRI_SCENARIOS = [
     ballTrack: [
       { t: 0.0, x: 2.42, y: 0.115, z: 7.75 },
       { t: 1.95, x: 2.68, y: 0.115, z: 4.52 },
+      { t: 2.65, x: 2.74, y: 0.115, z: 4.02 },
       { t: 3.25, x: 2.58, y: 0.115, z: 4.12 },
-      { t: 4.08, x: 2.36, y: 0.115, z: 3.22 },
+      { t: 4.08, x: 2.36, y: 0.115, z: 3.16 },
       { t: 4.35, x: 2.22, y: 0.115, z: 2.15, ease: 'linear' }, // right through #17 Vitinha's legs at (2.22, 2.25)!
       { t: 5.8, x: 1.72, y: 0.115, z: -1.85 }
     ],
@@ -1639,10 +1672,10 @@ const PEDRI_SCENARIOS = [
           { start: 5.55, end: 7.767, clip: 'sprint_fwd', rate: 1.05 }
         ],
         touchWindows: [
-          { start: 1.58, peak: 1.76, end: 1.96, foot: 'R', type: 'inside', maxWeight: 0.85 },
-          { start: 2.48, peak: 2.68, end: 2.92, foot: 'R', type: 'inside', maxWeight: 0.95 },
-          { start: 3.68, peak: 3.90, end: 4.15, foot: 'L', type: 'inside', maxWeight: 0.95 },
-          { start: 4.84, peak: 5.02, end: 5.22, foot: 'R', type: 'instep', maxWeight: 0.98 }
+          { start: 1.48, peak: 1.68, end: 1.94, foot: 'R', type: 'inside', action: 'receive', maxWeight: 0.92 },
+          { start: 2.46, peak: 2.66, end: 2.92, foot: 'R', type: 'inside', action: 'dribble', maxWeight: 0.96 },
+          { start: 3.66, peak: 3.88, end: 4.14, foot: 'L', type: 'inside', action: 'dribble', maxWeight: 0.96 },
+          { start: 4.82, peak: 5.02, end: 5.26, foot: 'R', type: 'instep', action: 'strike', maxWeight: 0.98 }
         ]
       },
       {
@@ -1663,6 +1696,9 @@ const PEDRI_SCENARIOS = [
         mocapSchedule: [
           { start: 0.0, end: 0.85, clip: 'soccer_pass_inside', rate: 1.2, offset: 0.25 },
           { start: 0.85, end: 7.767, clip: 'idle_ready', rate: 0.95 }
+        ],
+        touchWindows: [
+          { start: 0.0, peak: 0.18, end: 0.42, foot: 'R', type: 'inside', action: 'strike', maxWeight: 0.9 }
         ]
       },
       {
@@ -1735,13 +1771,14 @@ const PEDRI_SCENARIOS = [
       }
     ],
     ballTrack: [
-      { t: 0.0, x: 14.5, y: 0.115, z: -19.8 },
-      { t: 1.62, x: 4.92, y: 0.115, z: -15.05 },
-      { t: 2.46, x: 4.65, y: 0.115, z: -15.32 },
-      { t: 3.08, x: 1.82, y: 0.115, z: -15.95 },
-      { t: 3.68, x: 1.85, y: 0.115, z: -16.15 },
-      { t: 4.35, x: 3.88, y: 0.115, z: -17.25 },
-      { t: 5.02, x: 3.92, y: 0.115, z: -17.65 },
+      { t: 0.0, x: 14.82, y: 0.115, z: -20.12 },
+      { t: 0.18, x: 14.68, y: 0.115, z: -20.05 },
+      { t: 1.65, x: 4.88, y: 0.115, z: -15.16, ease: 'linear' },
+      { t: 2.52, x: 4.48, y: 0.115, z: -15.56 },
+      { t: 3.08, x: 1.76, y: 0.115, z: -16.12 },
+      { t: 3.74, x: 1.96, y: 0.115, z: -16.42 },
+      { t: 4.35, x: 3.88, y: 0.115, z: -17.32 },
+      { t: 5.02, x: 3.92, y: 0.115, z: -17.75 },
       { t: 5.74, x: -3.05, y: 0.20, z: -34.35, ease: 'linear' },
       { t: 7.767, x: -3.15, y: 0.115, z: -35.2 }
     ],

@@ -10,11 +10,16 @@ import {
 let sharedCharContainer = null;
 let rigPreloadPromise = null;
 
-// Zero-GC scratch objects for 60fps skeletal interpolation
+// Zero-GC scratch objects for 60fps skeletal interpolation & Two-Bone IK
 const _qPrimary = new BABYLON.Quaternion();
 const _qSecondary = new BABYLON.Quaternion();
 const _qOut = new BABYLON.Quaternion();
 const _qAdditive = new BABYLON.Quaternion();
+const _qParentInv = new BABYLON.Quaternion();
+const _qWorldDelta = new BABYLON.Quaternion();
+const _qSwing = new BABYLON.Quaternion();
+const _qTurnout = new BABYLON.Quaternion();
+const _qLocalTmp = new BABYLON.Quaternion();
 const _vPosA = new BABYLON.Vector3();
 const _vPosB = new BABYLON.Vector3();
 
@@ -25,6 +30,45 @@ function clamp(v, lo, hi) {
 function smoothstep01(u) {
   const t = clamp(u, 0, 1);
   return t * t * (3 - 2 * t);
+}
+
+function slerpShortestToRef(qFrom, qTo, w, out) {
+  const t = clamp(w, 0, 1);
+  if (t <= 0.0001) return out.copyFrom(qFrom);
+  const dot = qFrom.x * qTo.x + qFrom.y * qTo.y + qFrom.z * qTo.z + qFrom.w * qTo.w;
+  if (dot < 0) _qLocalTmp.set(-qTo.x, -qTo.y, -qTo.z, -qTo.w);
+  else _qLocalTmp.copyFrom(qTo);
+  if (t >= 0.9999) return out.copyFrom(_qLocalTmp);
+  BABYLON.Quaternion.SlerpToRef(qFrom, _qLocalTmp, t, out);
+  return out.normalize();
+}
+
+function rotationFromUnitVectorsToRef(uFrom, uTo, out) {
+  const dot = clamp(BABYLON.Vector3.Dot(uFrom, uTo), -1, 1);
+  if (dot > 0.999995) return out.set(0, 0, 0, 1);
+  if (dot < -0.999995) {
+    let ortho = BABYLON.Vector3.Cross(BABYLON.Axis.X, uFrom);
+    if (ortho.lengthSquared() < 1e-4) ortho = BABYLON.Vector3.Cross(BABYLON.Axis.Z, uFrom);
+    ortho.normalize();
+    return BABYLON.Quaternion.RotationAxisToRef(ortho, Math.PI, out);
+  }
+  BABYLON.Quaternion.FromUnitVectorsToRef(uFrom, uTo, out);
+  return out.normalize();
+}
+
+function applyWorldDeltaToBoneNode(node, qWorldDelta) {
+  const parent = node.parent;
+  if (parent) {
+    parent.computeWorldMatrix(true);
+    const qP = parent.absoluteRotationQuaternion;
+    if (qP) {
+      BABYLON.Quaternion.InverseToRef(qP, _qParentInv);
+      const qLocalDelta = _qParentInv.multiply(qWorldDelta).multiply(qP);
+      node.rotationQuaternion = qLocalDelta.multiply(node.rotationQuaternion).normalize();
+      return;
+    }
+  }
+  node.rotationQuaternion = qWorldDelta.multiply(node.rotationQuaternion).normalize();
 }
 
 /**
@@ -341,8 +385,8 @@ function isEffectiveDiscreteSkill(clipId, speed) {
   if (!clipId) return false;
   if (clipId === 'idle_scan' && speed < 0.42) return true;
   if (!DISCRETE_SKILL_CLIPS.has(clipId)) return false;
-  // Stationary ball-tap feint looks like skating if actor is already running > 2.25 m/s
-  if (clipId === 'soccer_crossover_feint' && speed > 2.25) return false;
+  // Allow dynamic La Croqueta & crossover feints up to 3.95 m/s
+  if (clipId === 'soccer_crossover_feint' && speed > 3.95) return false;
   return true;
 }
 
@@ -597,7 +641,7 @@ export function updateBabylonPlayerPose(playerModel, state, overlaysConfig) {
     }
   }
 
-  // 2. Evaluate all 65 bone rotations cleanly via Quaternion SLERP
+  // 2. Evaluate all 65 bone rotations cleanly via shortest-hemisphere Quaternion SLERP
   for (const [boneName, tn] of boneNodes.entries()) {
     const animA = clipA.rotMap.get(boneName);
     const rRest = restRot.get(boneName);
@@ -608,7 +652,7 @@ export function updateBabylonPlayerPose(playerModel, state, overlaysConfig) {
       const animB = clipB.rotMap.get(boneName);
       const qB = animB ? animB.evaluate(frameB) : rRest;
       _qSecondary.copyFrom(qB);
-      BABYLON.Quaternion.SlerpToRef(_qPrimary, _qSecondary, blendW, _qOut);
+      slerpShortestToRef(_qPrimary, _qSecondary, blendW, _qOut);
     } else {
       _qOut.copyFrom(_qPrimary);
     }
@@ -616,7 +660,11 @@ export function updateBabylonPlayerPose(playerModel, state, overlaysConfig) {
     tn.rotationQuaternion.copyFrom(_qOut);
   }
 
-  // 3. Natural bounded head pre-scan rotation (`scanYaw` divided gently across Neck & Head, max ±28°)
+  // 3. Damp ground sky-kicks / pelvis whip & solve Anatomical Two-Bone Leg + Ankle Ball-Touch IK
+  dampGroundSkyKickAndPelvisWhip(playerModel, state, primaryId, secondaryId, blendW);
+  applyAnatomicalBallTouchIK(playerModel, state, primaryId, secondaryId);
+
+  // 4. Natural bounded head pre-scan rotation (`scanYaw` divided gently across Neck & Head, max ±28°)
   if (Math.abs(state.scanYaw || 0) > 0.01) {
     const clampedScan = clamp(state.scanYaw, -0.52, 0.52);
     const neckNode = boneNodes.get('mixamorig:Neck');
@@ -631,7 +679,7 @@ export function updateBabylonPlayerPose(playerModel, state, overlaysConfig) {
     }
   }
 
-  // True X-Ray 65-Bone Skeleton LineSystem (renderingGroupId = 2, draws over mesh without depth occlusion)
+  // 5. True X-Ray 65-Bone Skeleton LineSystem (reflects IK-resolved thigh, calf & ankle angles)
   if (overlaysConfig.showSkeleton && playerModel.skeleton) {
     if (!playerModel.bonePairs) {
       const pairs = [];
@@ -674,16 +722,22 @@ export function updateBabylonPlayerPose(playerModel, state, overlaysConfig) {
     playerModel.skeletonViewer.setEnabled(false);
   }
 
-  // 4. Compute real-time biomechanical telemetry directly from Mixamo skeleton
+  // 6. Compute real-time biomechanical telemetry directly from IK-resolved Mixamo skeleton
   const pctA = Math.round((1 - blendW) * 100);
   const pctB = Math.round(blendW * 100);
-  playerModel.activeMocapDebug = clipB
-    ? `${primaryId} (${pctA}%) → ${secondaryId} (${pctB}%)`
-    : `${primaryId} (100%)`;
+  const ikBadge =
+    state.ballTouch && state.ballTouch.weight > 0.15
+      ? ` + TouchIK(${state.ballTouch.foot}:${Math.round(state.ballTouch.weight * 100)}%)`
+      : '';
+  playerModel.activeMocapDebug =
+    (clipB ? `${primaryId} (${pctA}%) → ${secondaryId} (${pctB}%)` : `${primaryId} (100%)`) + ikBadge;
 
   const rLeg = boneNodes.get('mixamorig:RightLeg');
   const lLeg = boneNodes.get('mixamorig:LeftLeg');
-  const rFoot = boneNodes.get('mixamorig:RightFoot');
+  const activeFootNode =
+    state.ballTouch && state.ballTouch.foot === 'L'
+      ? boneNodes.get('mixamorig:LeftFoot')
+      : boneNodes.get('mixamorig:RightFoot');
 
   const kneeAngleRad = rLeg
     ? 2 * Math.acos(clamp(Math.abs(rLeg.rotationQuaternion.w), 0, 1))
@@ -691,20 +745,27 @@ export function updateBabylonPlayerPose(playerModel, state, overlaysConfig) {
   const lKneeRad = lLeg
     ? 2 * Math.acos(clamp(Math.abs(lLeg.rotationQuaternion.w), 0, 1))
     : 0.3;
-  const ankleEu = rFoot ? rFoot.rotationQuaternion.toEulerAngles() : BABYLON.Vector3.Zero();
+  const ankleEu = activeFootNode ? activeFootNode.rotationQuaternion.toEulerAngles() : BABYLON.Vector3.Zero();
 
   let footLabel = '双脚动态盘带支撑';
   if (state.ballTouch && state.ballTouch.weight > 0.15) {
     const fSide = state.ballTouch.foot === 'L' ? '左脚' : '右脚';
+    const act = state.ballTouch.action;
     const fPart =
       state.ballTouch.type === 'sole'
         ? '脚底拉球'
         : state.ballTouch.type === 'outside'
-        ? '外脚背拨球'
+        ? '外脚背拨顺'
         : state.ballTouch.type === 'instep'
-        ? '正脚背抽射'
-        : '脚内侧推顺';
-    footLabel = `${fSide}${fPart} (${Math.round(state.ballTouch.weight * 100)}%)`;
+        ? act === 'receive'
+          ? '正脚背卸球'
+          : '正脚背抽射'
+        : act === 'receive'
+        ? '脚内侧缓冲卸球'
+        : act === 'strike'
+        ? '脚内侧推传/兜射'
+        : '脚内侧扣顺';
+    footLabel = `${fSide}${fPart} · IK ${Math.round(state.ballTouch.weight * 100)}%`;
   }
 
   playerModel.telemetry.activeClip = clipB ? `${primaryId}+${secondaryId}` : primaryId;
@@ -712,6 +773,285 @@ export function updateBabylonPlayerPose(playerModel, state, overlaysConfig) {
   playerModel.telemetry.kneeFlexDeg = Math.round(((Math.max(kneeAngleRad, lKneeRad) * 180) / Math.PI));
   playerModel.telemetry.anklePitchDeg = Math.round(((ankleEu.x * 180) / Math.PI) % 90);
   playerModel.telemetry.ankleEversionDeg = Math.round(((ankleEu.z * 180) / Math.PI) % 45);
+}
+
+const GROUND_STRIKE_CLIPS = new Set(['soccer_shot_drive', 'soccer_pass_inside', 'soccer_through_ball']);
+const STUNT_SKIP_IK_CLIPS = new Set(['soccer_slide_tackle', 'soccer_turf_hand_shield', 'gk_dive_left', 'gk_dive_right']);
+
+function refreshLegChainWorldMatrices(playerModel, upLeg, leg, foot, toe) {
+  playerModel.root.computeWorldMatrix(true);
+  playerModel.posePivot.computeWorldMatrix(true);
+  if (playerModel.gltfRoot) playerModel.gltfRoot.computeWorldMatrix(true);
+  const hips = playerModel.boneNodes.get('mixamorig:Hips');
+  if (hips) hips.computeWorldMatrix(true);
+  upLeg.computeWorldMatrix(true);
+  leg.computeWorldMatrix(true);
+  foot.computeWorldMatrix(true);
+  if (toe) toe.computeWorldMatrix(true);
+}
+
+function solveTwoBoneLegIK(playerModel, isLeft, ankleGoalWorld, poleDirWorld, turnoutRad, toeDirGoalWorld, weight) {
+  const w = clamp(weight, 0, 1);
+  if (w <= 0.001) return;
+  const { boneNodes } = playerModel;
+  const side = isLeft ? 'Left' : 'Right';
+  const upLeg = boneNodes.get(`mixamorig:${side}UpLeg`);
+  const leg = boneNodes.get(`mixamorig:${side}Leg`);
+  const foot = boneNodes.get(`mixamorig:${side}Foot`);
+  const toe = boneNodes.get(`mixamorig:${side}ToeBase`);
+  if (!upLeg || !leg || !foot) return;
+
+  const qUpLegFK = upLeg.rotationQuaternion.clone();
+  const qLegFK = leg.rotationQuaternion.clone();
+  const qFootFK = foot.rotationQuaternion.clone();
+
+  refreshLegChainWorldMatrices(playerModel, upLeg, leg, foot, toe);
+  const H = upLeg.getAbsolutePosition().clone();
+  const KCur = leg.getAbsolutePosition().clone();
+  const ACur = foot.getAbsolutePosition().clone();
+
+  const L1 = BABYLON.Vector3.Distance(H, KCur);
+  const L2 = BABYLON.Vector3.Distance(KCur, ACur);
+  if (L1 < 0.12 || L2 < 0.12) return;
+
+  const totalLen = L1 + L2;
+  const goalClamped = ankleGoalWorld.clone();
+  goalClamped.y = Math.max(0.118, goalClamped.y);
+
+  const vHA = goalClamped.subtract(H);
+  let d = vHA.length();
+  if (d < 1e-4) return;
+  const uHA = vHA.scale(1 / d);
+  d = clamp(d, 0.42 * totalLen, 0.952 * totalLen);
+  const AGoal = H.add(uHA.scale(d));
+
+  const cosAlpha = clamp((L1 * L1 + d * d - L2 * L2) / (2 * L1 * d), -0.995, 0.995);
+  const sinAlpha = Math.sqrt(Math.max(0, 1 - cosAlpha * cosAlpha));
+
+  let polePerp = poleDirWorld.subtract(uHA.scale(BABYLON.Vector3.Dot(poleDirWorld, uHA)));
+  if (polePerp.lengthSquared() < 1e-5) {
+    const yaw = playerModel.root.rotation.y || 0;
+    const fwd = new BABYLON.Vector3(Math.sin(yaw), 0, Math.cos(yaw));
+    polePerp = fwd.subtract(uHA.scale(BABYLON.Vector3.Dot(fwd, uHA)));
+  }
+  polePerp.normalize();
+
+  const fkThigh = KCur.subtract(H);
+  const fkPerp = fkThigh.subtract(uHA.scale(BABYLON.Vector3.Dot(fkThigh, uHA)));
+  if (fkPerp.lengthSquared() > 1e-4) {
+    fkPerp.normalize();
+    if (BABYLON.Vector3.Dot(fkPerp, polePerp) > 0.25) {
+      polePerp = polePerp.scale(0.82).add(fkPerp.scale(0.18)).normalize();
+    }
+  }
+
+  const KGoal = H.add(uHA.scale(L1 * cosAlpha)).add(polePerp.scale(L1 * sinAlpha));
+
+  const uThighCur = KCur.subtract(H).normalize();
+  const uThighGoal = KGoal.subtract(H).normalize();
+  rotationFromUnitVectorsToRef(uThighCur, uThighGoal, _qSwing);
+  if (Math.abs(turnoutRad) > 0.001) {
+    const outSign = isLeft ? 1 : -1;
+    BABYLON.Quaternion.RotationAxisToRef(uThighGoal, -outSign * turnoutRad, _qTurnout);
+    _qTurnout.multiplyToRef(_qSwing, _qWorldDelta);
+    _qWorldDelta.normalize();
+  } else {
+    _qWorldDelta.copyFrom(_qSwing);
+  }
+  applyWorldDeltaToBoneNode(upLeg, _qWorldDelta);
+  upLeg.computeWorldMatrix(true);
+  leg.computeWorldMatrix(true);
+  foot.computeWorldMatrix(true);
+
+  const KNow = leg.getAbsolutePosition().clone();
+  const ANow = foot.getAbsolutePosition().clone();
+  const uShinCur = ANow.subtract(KNow).normalize();
+  const uShinGoal = AGoal.subtract(KNow).normalize();
+  rotationFromUnitVectorsToRef(uShinCur, uShinGoal, _qWorldDelta);
+  applyWorldDeltaToBoneNode(leg, _qWorldDelta);
+  leg.computeWorldMatrix(true);
+  foot.computeWorldMatrix(true);
+  if (toe) toe.computeWorldMatrix(true);
+
+  if (toe && toeDirGoalWorld) {
+    const AFinal = foot.getAbsolutePosition().clone();
+    const TNow = toe.getAbsolutePosition().clone();
+    const uToeCur = TNow.subtract(AFinal);
+    if (uToeCur.lengthSquared() > 1e-5) {
+      uToeCur.normalize();
+      let uToeGoal = toeDirGoalWorld.clone().normalize();
+      const shinDot = BABYLON.Vector3.Dot(uShinGoal, uToeGoal);
+      const clampedDot = clamp(shinDot, -0.04, 0.86);
+      if (Math.abs(shinDot - clampedDot) > 1e-4) {
+        const perpToe = uToeGoal.subtract(uShinGoal.scale(shinDot));
+        if (perpToe.lengthSquared() > 1e-5) {
+          perpToe.normalize();
+          const perpScale = Math.sqrt(Math.max(0, 1 - clampedDot * clampedDot));
+          uToeGoal = uShinGoal.scale(clampedDot).add(perpToe.scale(perpScale)).normalize();
+        }
+      }
+      rotationFromUnitVectorsToRef(uToeCur, uToeGoal, _qWorldDelta);
+      applyWorldDeltaToBoneNode(foot, _qWorldDelta);
+    }
+  }
+
+  const qUpLegIK = upLeg.rotationQuaternion.clone();
+  const qLegIK = leg.rotationQuaternion.clone();
+  const qFootIK = foot.rotationQuaternion.clone();
+  slerpShortestToRef(qUpLegFK, qUpLegIK, w, upLeg.rotationQuaternion);
+  slerpShortestToRef(qLegFK, qLegIK, w, leg.rotationQuaternion);
+  slerpShortestToRef(qFootFK, qFootIK, w, foot.rotationQuaternion);
+}
+
+function dampGroundSkyKickAndPelvisWhip(playerModel, state, primaryId, secondaryId, blendW) {
+  if (state.showcaseMode) return;
+  if ((state.ballPos?.y ?? 0.115) >= 0.58) return;
+
+  const { boneNodes, restRot } = playerModel;
+  const hipsNode = boneNodes.get('mixamorig:Hips');
+  const hipsRest = restRot.get('mixamorig:Hips');
+  const dampOf = (id) =>
+    id === 'soccer_shot_drive' ? 0.34 : id === 'soccer_crossover_feint' ? 0.25 : id === 'soccer_pass_inside' ? 0.18 : 0;
+  const wWhip = dampOf(primaryId) * (1 - blendW) + dampOf(secondaryId) * blendW;
+  if (hipsNode && hipsRest && wWhip > 0.005) {
+    slerpShortestToRef(hipsNode.rotationQuaternion, hipsRest, wWhip, hipsNode.rotationQuaternion);
+  }
+
+  const isGroundStrike =
+    GROUND_STRIKE_CLIPS.has(primaryId) || (blendW > 0.15 && GROUND_STRIKE_CLIPS.has(secondaryId));
+  if (!isGroundStrike) return;
+
+  const yaw = state.yaw || 0;
+  const fwd = new BABYLON.Vector3(Math.sin(yaw), 0, Math.cos(yaw));
+  const left = new BABYLON.Vector3(Math.cos(yaw), 0, -Math.sin(yaw));
+  for (const isLeft of [false, true]) {
+    const side = isLeft ? 'Left' : 'Right';
+    const upLeg = boneNodes.get(`mixamorig:${side}UpLeg`);
+    const leg = boneNodes.get(`mixamorig:${side}Leg`);
+    const foot = boneNodes.get(`mixamorig:${side}Foot`);
+    const toe = boneNodes.get(`mixamorig:${side}ToeBase`);
+    if (!upLeg || !leg || !foot) continue;
+    refreshLegChainWorldMatrices(playerModel, upLeg, leg, foot, toe);
+    const footPos = foot.getAbsolutePosition();
+    if (footPos.y > 0.36) {
+      const clampedPos = footPos.clone();
+      clampedPos.y = 0.36 + (footPos.y - 0.36) * 0.16;
+      const out = left.scale(isLeft ? 1 : -1);
+      const pole = fwd.scale(0.86).add(out.scale(0.42)).add(new BABYLON.Vector3(0, 0.12, 0)).normalize();
+      solveTwoBoneLegIK(playerModel, isLeft, clampedPos, pole, 0, null, 0.88);
+    }
+  }
+}
+
+function applyAnatomicalBallTouchIK(playerModel, state, primaryId, secondaryId) {
+  if (state.showcaseMode) return;
+  const touch = state.ballTouch;
+  if (!touch || touch.weight <= 0.005 || !state.ballPos) return;
+  if (STUNT_SKIP_IK_CLIPS.has(primaryId) || STUNT_SKIP_IK_CLIPS.has(secondaryId)) return;
+
+  const isLeft = touch.foot === 'L';
+  const outSign = isLeft ? 1 : -1;
+  const side = isLeft ? 'Left' : 'Right';
+  const upLeg = playerModel.boneNodes.get(`mixamorig:${side}UpLeg`);
+  const leg = playerModel.boneNodes.get(`mixamorig:${side}Leg`);
+  const foot = playerModel.boneNodes.get(`mixamorig:${side}Foot`);
+  const toe = playerModel.boneNodes.get(`mixamorig:${side}ToeBase`);
+  if (!upLeg || !leg || !foot) return;
+
+  refreshLegChainWorldMatrices(playerModel, upLeg, leg, foot, toe);
+  const H = upLeg.getAbsolutePosition().clone();
+
+  const yaw = state.yaw || 0;
+  const Fwd = new BABYLON.Vector3(Math.sin(yaw), 0, Math.cos(yaw));
+  const Left = new BABYLON.Vector3(Math.cos(yaw), 0, -Math.sin(yaw));
+  const Out = Left.scale(outSign);
+  const Up = BABYLON.Axis.Y;
+
+  const dx = state.ballPos.x - state.x;
+  const dz = state.ballPos.z - state.z;
+  const horizDist = Math.hypot(dx, dz);
+  const toBallDir = horizDist > 0.04 ? new BABYLON.Vector3(dx / horizDist, 0, dz / horizDist) : Fwd.clone();
+
+  const maxHoriz = 0.60;
+  const effDist = horizDist <= maxHoriz ? horizDist : maxHoriz + Math.tanh((horizDist - maxHoriz) * 1.6) * 0.08;
+  const BRef = new BABYLON.Vector3(
+    state.x + toBallDir.x * effDist,
+    clamp(state.ballPos.y ?? 0.115, 0.115, 0.68),
+    state.z + toBallDir.z * effDist
+  );
+
+  const action =
+    touch.action || (GROUND_STRIKE_CLIPS.has(primaryId) || primaryId === 'soccer_power_kick' ? 'strike' : 'dribble');
+
+  const AGoal = BRef.clone();
+  let turnoutRad = 0;
+  let toeDirGoal = null;
+
+  if (touch.type === 'sole') {
+    AGoal.addInPlace(Fwd.scale(-0.085)).addInPlace(Out.scale(0.025));
+    AGoal.y = Math.max(0.255, BRef.y + 0.145);
+    turnoutRad = 0.14;
+    toeDirGoal = Fwd.scale(0.93).add(Out.scale(0.12)).add(Up.scale(-0.34)).normalize();
+  } else if (touch.type === 'outside') {
+    AGoal.addInPlace(Out.scale(-0.055)).addInPlace(Fwd.scale(-0.115));
+    AGoal.y = Math.max(0.138, BRef.y + 0.028);
+    turnoutRad = -0.10;
+    toeDirGoal = Fwd.scale(0.86).add(Out.scale(-0.22)).add(Up.scale(-0.46)).normalize();
+  } else if (touch.type === 'instep') {
+    AGoal.addInPlace(toBallDir.scale(-0.145)).addInPlace(Out.scale(0.025));
+    AGoal.y = Math.max(0.152, BRef.y + 0.042);
+    turnoutRad = 0.08;
+    toeDirGoal = Fwd.scale(0.78).add(Out.scale(0.08)).add(Up.scale(-0.62)).normalize();
+  } else {
+    AGoal.addInPlace(Out.scale(0.112)).addInPlace(toBallDir.scale(-0.068));
+    AGoal.y = Math.max(0.144, BRef.y + 0.034);
+    turnoutRad = 0.46;
+    toeDirGoal = Fwd.scale(0.74).add(Out.scale(0.66)).add(Up.scale(-0.16)).normalize();
+  }
+
+  const u = clamp(touch.u ?? 0.5, 0, 1);
+  if (action === 'receive') {
+    if (u < 0.5) {
+      const s = 1 - 2 * u;
+      AGoal.addInPlace(toBallDir.scale(0.052 * s));
+      AGoal.y += 0.016 * Math.sin(u * Math.PI * 2);
+    } else {
+      const f = 2 * u - 1;
+      AGoal.addInPlace(toBallDir.scale(-0.072 * Math.sin(f * Math.PI * 0.85)));
+      AGoal.y = AGoal.y * (1 - 0.45 * f) + 0.136 * (0.45 * f);
+    }
+  } else if (action === 'strike') {
+    const bvx = state.ballVel?.vx ?? 0;
+    const bvz = state.ballVel?.vz ?? 0;
+    const bvLen = Math.hypot(bvx, bvz);
+    const strikeDir = bvLen > 1.2 ? new BABYLON.Vector3(bvx / bvLen, 0, bvz / bvLen) : Fwd;
+    if (u < 0.5) {
+      const s = 1 - 2 * u;
+      AGoal.addInPlace(Fwd.scale(-0.22 * Math.sin(s * Math.PI * 0.5)));
+      AGoal.y += 0.085 * Math.sin(s * Math.PI * 0.65);
+    } else {
+      const f = 2 * u - 1;
+      AGoal.addInPlace(strikeDir.scale(0.21 * Math.sin(f * Math.PI * 0.65)));
+      AGoal.y += 0.095 * Math.sin(f * Math.PI * 0.85);
+    }
+  } else {
+    if (u < 0.5) {
+      AGoal.addInPlace(Fwd.scale(-0.055 * (1 - 2 * u)));
+      AGoal.y += 0.028 * Math.sin(u * Math.PI * 2);
+    } else {
+      AGoal.addInPlace(toBallDir.scale(0.06 * Math.sin((2 * u - 1) * Math.PI * 0.8)));
+    }
+  }
+
+  const inwardCross = BABYLON.Vector3.Dot(AGoal.subtract(H), Out.scale(-1));
+  if (inwardCross > 0.13) {
+    AGoal.addInPlace(Out.scale(inwardCross - 0.13));
+  }
+
+  const poleOutFactor = 0.34 + Math.max(0, turnoutRad) * 0.65;
+  const poleDirWorld = Fwd.scale(0.86).add(Out.scale(poleOutFactor)).add(Up.scale(0.12)).normalize();
+
+  solveTwoBoneLegIK(playerModel, isLeft, AGoal, poleDirWorld, turnoutRad, toeDirGoal, touch.weight);
 }
 
 /**
