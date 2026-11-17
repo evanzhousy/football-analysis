@@ -1,4 +1,10 @@
 import { MULTI_POSITION_SCENARIOS } from './scenariosMultiPos.js';
+import { VIDEO_CAPTURE_S01 } from './videoCaptureData_S01.js';
+
+// Map scenario IDs to video capture data (when available)
+const VIDEO_CAPTURE_MAP = {
+  'back-tight-half-turn': { actorId: 'pedri', data: VIDEO_CAPTURE_S01 },
+};
 
 function clamp(v, lo, hi) {
   return Math.max(lo, Math.min(hi, v));
@@ -540,6 +546,21 @@ export function evaluateScenarioAtTime(scenario, tSec) {
       ballVel
     };
   });
+
+  // Inject video capture data for actors with real video-extracted motion
+  const vcEntry = VIDEO_CAPTURE_MAP[scenario.id];
+  if (vcEntry && vcEntry.data) {
+    for (let i = 0; i < actorStates.length; i++) {
+      const actorDef = scenario.actors[i];
+      if (actorDef.id === vcEntry.actorId || actorDef.role === vcEntry.actorId) {
+        const vcFrame = vcEntry.data.getFrame(clampedT);
+        if (vcFrame) {
+          actorStates[i].videoCaptureFrame = vcFrame;
+          actorStates[i].videoCaptureWeight = 0.85; // blend: 85% video, 15% FK
+        }
+      }
+    }
+  }
 
   const cam = sampleCameraTrack(scenario.camTrack, clampedT);
 

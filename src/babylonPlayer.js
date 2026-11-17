@@ -6,6 +6,7 @@ import {
   DISCRETE_SKILL_CLIPS,
   LOCOMOTION_CLIP_SPECS
 } from './mixamoSoccerLibrary.js';
+import { applyVideoCaptureFrame } from './videoCaptureDriver.js';
 
 let sharedCharContainer = null;
 let rigPreloadPromise = null;
@@ -663,6 +664,12 @@ export function updateBabylonPlayerPose(playerModel, state, overlaysConfig) {
   // 3. Damp ground sky-kicks / pelvis whip & solve Anatomical Two-Bone Leg + Ankle Ball-Touch IK
   dampGroundSkyKickAndPelvisWhip(playerModel, state, primaryId, secondaryId, blendW);
   applyAnatomicalBallTouchIK(playerModel, state, primaryId, secondaryId);
+
+  // 3b. Video capture override: if real video-extracted 3D joints are available, apply them
+  //     This overrides the hand-coded IK with actual player movements from the match footage.
+  if (state.videoCaptureFrame) {
+    applyVideoCaptureFrame(playerModel, state.videoCaptureFrame, state, state.videoCaptureWeight ?? 0.85);
+  }
 
   // 4. Natural bounded head pre-scan rotation (`scanYaw` divided gently across Neck & Head, max ±28°)
   if (Math.abs(state.scanYaw || 0) > 0.01) {
