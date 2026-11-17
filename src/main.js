@@ -909,6 +909,7 @@ function evaluateFrame(dt) {
       updateBabylonPlayerPose(
         showcasePedriActor,
         {
+          showcaseMode: true,
           tSec: currentSec,
           x: 0,
           z: 8.0,

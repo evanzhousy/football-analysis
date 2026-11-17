@@ -49,6 +49,50 @@ export const MOCAP_CATALOG = [
   { id: 'gk_dive_right', category: '传射与门将扑救', label: '门将向右侧倒地封堵扑救 (GK Right Body Block)', file: 'gk_dive_right.glb', loop: false }
 ];
 
+export const FULL_ROOT_EXCURSION_CLIPS = new Set([
+  'soccer_slide_tackle',
+  'soccer_turf_hand_shield',
+  'gk_dive_left',
+  'gk_dive_right'
+]);
+
+export const DISCRETE_SKILL_CLIPS = new Set([
+  'soccer_receive_chest',
+  'soccer_turf_hand_shield',
+  'soccer_slide_tackle',
+  'soccer_half_turn_180',
+  'soccer_crossover_feint',
+  'soccer_cut_left_90',
+  'soccer_cut_right_90',
+  'soccer_roulette_360',
+  'soccer_pass_inside',
+  'soccer_through_ball',
+  'soccer_shot_drive',
+  'soccer_power_kick',
+  'gk_dive_left',
+  'gk_dive_right'
+]);
+
+/**
+ * Exact FK-measured stance-foot ground speed (m/s) and two-step gait cycle stride length (m)
+ * for every Mixamo locomotion clip when horizontal root drift is stripped (in-place).
+ */
+export const LOCOMOTION_CLIP_SPECS = {
+  walk_fwd: { stride: 1.65, naturalSpeed: 1.42 },
+  jog_fwd: { stride: 1.93, naturalSpeed: 2.31 },
+  sprint_cut_r: { stride: 1.93, naturalSpeed: 2.31 },
+  sprint_fwd: { stride: 2.80, naturalSpeed: 5.18 },
+  walk_back: { stride: 1.26, naturalSpeed: 1.04 },
+  jog_back: { stride: 1.63, naturalSpeed: 2.06 },
+  sprint_back: { stride: 1.33, naturalSpeed: 1.77 },
+  walk_strafe_l: { stride: 1.40, naturalSpeed: 1.12 },
+  walk_strafe_r: { stride: 1.58, naturalSpeed: 2.23 },
+  crouch_strafe_l: { stride: 1.19, naturalSpeed: 2.38 },
+  crouch_strafe_r: { stride: 1.47, naturalSpeed: 2.93 },
+  jog_strafe_l: { stride: 1.99, naturalSpeed: 2.39 },
+  crouch_jockey_back: { stride: 1.86, naturalSpeed: 2.23 }
+};
+
 const clipCache = new Map();
 let loadPromise = null;
 
@@ -86,6 +130,10 @@ export function preloadMixamoSoccerLibrary(scene, onProgress) {
             }
           }
 
+          const hipsRestPos = hipsPosAnim
+            ? hipsPosAnim.evaluate(ag.from).clone()
+            : new BABYLON.Vector3(0, 2.3146, -96.3706);
+
           const duration = Math.max(0.1, (ag.to - ag.from) / fps);
           clipCache.set(entry.id, {
             id: entry.id,
@@ -95,6 +143,8 @@ export function preloadMixamoSoccerLibrary(scene, onProgress) {
             fps,
             duration,
             loop: entry.loop,
+            allowHorizontalRootExcursion: FULL_ROOT_EXCURSION_CLIPS.has(entry.id),
+            hipsRestPos,
             rotMap,
             hipsPosAnim,
             container

@@ -17,16 +17,29 @@ function smoothstep01(u) {
   return t * t * (3 - 2 * t);
 }
 
-function lerpAngle(a, b, t) {
-  let diff = ((b - a + Math.PI) % (Math.PI * 2)) - Math.PI;
+function shortestAngleDiff(fromRad, toRad) {
+  let diff = ((toRad - fromRad + Math.PI) % (Math.PI * 2)) - Math.PI;
   if (diff < -Math.PI) diff += Math.PI * 2;
-  return a + diff * t;
+  return diff;
+}
+
+function lerpAngle(a, b, t) {
+  return a + shortestAngleDiff(a, b) * t;
 }
 
 const CROSSFADE_SEC = 0.26;
 
+const SPIN_OR_STUNT_CLIPS = new Set([
+  'soccer_roulette_360',
+  'soccer_half_turn_180',
+  'soccer_slide_tackle',
+  'soccer_turf_hand_shield',
+  'gk_dive_left',
+  'gk_dive_right'
+]);
+
 /**
- * Samples piecewise keyframe track in real seconds `tSec`.
+ * Samples piecewise keyframe track in real seconds `tSec` (used for match ball trajectories).
  */
 function sampleSpatialKeyframes(keyframes, tSec) {
   if (!keyframes || keyframes.length === 0) {
@@ -106,6 +119,222 @@ function sampleSpatialKeyframes(keyframes, tSec) {
 }
 
 /**
+ * Computes C1 overshoot-free Cubic Hermite tangents `(mx, mz)` at each actor keyframe
+ * so players run smoothly through intermediate knots instead of braking to 0 m/s at every keyframe.
+ */
+function ensureActorHermiteTangents(actorDef) {
+  if (actorDef._hermiteTangents) return actorDef._hermiteTangents;
+  const kf = actorDef.keyframes || [];
+  const n = kf.length;
+  const tangents = new Array(n);
+
+  if (n <= 1) {
+    for (let i = 0; i < n; i++) tangents[i] = { mx: 0, mz: 0 };
+    actorDef._hermiteTangents = tangents;
+    return tangents;
+  }
+
+  const sec = new Array(n - 1);
+  for (let i = 0; i < n - 1; i++) {
+    const dt = Math.max(0.001, kf[i + 1].t - kf[i].t);
+    const vx = (kf[i + 1].x - kf[i].x) / dt;
+    const vz = (kf[i + 1].z - kf[i].z) / dt;
+    sec[i] = { dt, vx, vz, spd: Math.hypot(vx, vz) };
+  }
+
+  // Start knot: if actor enters clip already running (>1.6 m/s), keep initial momentum
+  const s0 = sec[0].spd > 1.6 ? 0.72 : 0.20;
+  tangents[0] = { mx: sec[0].vx * s0, mz: sec[0].vz * s0 };
+
+  // End knot: if actor exits clip still running (>1.6 m/s), carry momentum cleanly through end
+  const sEnd = sec[n - 2].spd > 1.6 ? 0.78 : 0.18;
+  tangents[n - 1] = { mx: sec[n - 2].vx * sEnd, mz: sec[n - 2].vz * sEnd };
+
+  for (let i = 1; i < n - 1; i++) {
+    const a = sec[i - 1];
+    const b = sec[i];
+    if (a.spd < 0.08 || b.spd < 0.08) {
+      tangents[i] = { mx: 0, mz: 0 };
+      continue;
+    }
+    const cosTheta = (a.vx * b.vx + a.vz * b.vz) / (a.spd * b.spd);
+    // Sharp cutback (>98 deg): plant & decelerate cleanly at knot without overshoot loop
+    if (cosTheta <= -0.15) {
+      tangents[i] = { mx: 0, mz: 0 };
+      continue;
+    }
+    const wA = b.dt / (a.dt + b.dt);
+    const wB = a.dt / (a.dt + b.dt);
+    let mx = a.vx * wA + b.vx * wB;
+    let mz = a.vz * wA + b.vz * wB;
+    const mSpd = Math.hypot(mx, mz);
+    const maxSpd = Math.min(a.spd, b.spd) * 1.18;
+    if (mSpd > maxSpd && mSpd > 0.0001) {
+      const scale = maxSpd / mSpd;
+      mx *= scale;
+      mz *= scale;
+    }
+    tangents[i] = { mx, mz };
+  }
+
+  actorDef._hermiteTangents = tangents;
+  return tangents;
+}
+
+/**
+ * Samples smooth C1 Cubic Hermite actor trajectory at `tSec`.
+ */
+function sampleActorKeyframes(actorDef, tSec) {
+  const keyframes = actorDef.keyframes;
+  if (!keyframes || keyframes.length === 0) {
+    return { x: 0, z: 0, yaw: 0, rawYaw: false, crouch: 0, scanYaw: 0, shieldSide: null, leanRollOffset: 0, showShadow: true };
+  }
+  if (tSec <= keyframes[0].t) {
+    const k = keyframes[0];
+    return {
+      x: k.x,
+      z: k.z,
+      yaw: k.yaw ?? 0,
+      rawYaw: Boolean(k.rawYaw),
+      crouch: k.crouch ?? 0,
+      scanYaw: k.scanYaw ?? 0,
+      shieldSide: k.shieldSide ?? null,
+      leanRollOffset: k.leanRoll ?? 0,
+      showShadow: k.showShadow !== false
+    };
+  }
+  const last = keyframes[keyframes.length - 1];
+  if (tSec >= last.t) {
+    return {
+      x: last.x,
+      z: last.z,
+      yaw: last.yaw ?? 0,
+      rawYaw: Boolean(last.rawYaw),
+      crouch: last.crouch ?? 0,
+      scanYaw: last.scanYaw ?? 0,
+      shieldSide: last.shieldSide ?? null,
+      leanRollOffset: last.leanRoll ?? 0,
+      showShadow: last.showShadow !== false
+    };
+  }
+
+  const tangents = ensureActorHermiteTangents(actorDef);
+
+  for (let i = 0; i < keyframes.length - 1; i++) {
+    const k0 = keyframes[i];
+    const k1 = keyframes[i + 1];
+    if (tSec >= k0.t && tSec <= k1.t) {
+      const dt = Math.max(0.0001, k1.t - k0.t);
+      const u = clamp01((tSec - k0.t) / dt);
+      const u2 = u * u;
+      const u3 = u2 * u;
+
+      const h00 = 2 * u3 - 3 * u2 + 1;
+      const h10 = u3 - 2 * u2 + u;
+      const h01 = -2 * u3 + 3 * u2;
+      const h11 = u3 - u2;
+
+      const m0 = tangents[i];
+      const m1 = tangents[i + 1];
+
+      const x = h00 * k0.x + h10 * dt * m0.mx + h01 * k1.x + h11 * dt * m1.mx;
+      const z = h00 * k0.z + h10 * dt * m0.mz + h01 * k1.z + h11 * dt * m1.mz;
+
+      const uSmooth = smoothstep01(u);
+      const dx = k1.x - k0.x;
+      const dz = k1.z - k0.z;
+      const dist = Math.hypot(dx, dz);
+      const autoYaw = dist > 0.08 ? Math.atan2(dx, dz) : k0.yaw ?? 0;
+
+      let yaw;
+      if (k0.yaw !== undefined && k1.yaw !== undefined) {
+        yaw = k1.rawYaw ? lerp(k0.yaw, k1.yaw, uSmooth) : lerpAngle(k0.yaw, k1.yaw, uSmooth);
+      } else {
+        yaw = autoYaw;
+      }
+
+      return {
+        x,
+        z,
+        yaw,
+        rawYaw: Boolean(k1.rawYaw),
+        crouch: lerp(k0.crouch ?? 0, k1.crouch ?? 0, uSmooth),
+        scanYaw: lerp(k0.scanYaw ?? 0, k1.scanYaw ?? 0, uSmooth),
+        shieldSide: u < 0.85 ? k0.shieldSide ?? k1.shieldSide ?? null : k1.shieldSide ?? null,
+        leanRollOffset: lerp(k0.leanRoll ?? 0, k1.leanRoll ?? 0, uSmooth),
+        showShadow: k0.showShadow !== false && k1.showShadow !== false
+      };
+    }
+  }
+
+  return { x: last.x, z: last.z, yaw: last.yaw ?? 0, rawYaw: false, crouch: 0, scanYaw: 0, shieldSide: null, leanRollOffset: 0, showShadow: true };
+}
+
+function blendedForwardStrideAtSpeed(spd) {
+  if (spd <= 1.42) return 1.65;
+  if (spd < 2.31) return lerp(1.65, 1.93, (spd - 1.42) / (2.31 - 1.42));
+  if (spd < 5.18) return lerp(1.93, 2.80, (spd - 2.31) / (5.18 - 2.31));
+  return 2.80;
+}
+
+/**
+ * Precomputes deterministic cumulative ground distance (`distMeters`) and normalized gait cycles
+ * (`gaitCycles = integral(speed / effectiveStride dt)`) so foot cadence matches ground speed 1:1.
+ */
+function ensureActorGaitTable(actorDef, durationSec) {
+  if (actorDef._gaitTable && actorDef._gaitTable.durationSec === durationSec) {
+    return actorDef._gaitTable;
+  }
+  const stepSec = 0.02;
+  const count = Math.max(2, Math.ceil(durationSec / stepSec) + 1);
+  const distArr = new Float32Array(count);
+  const cycleArr = new Float32Array(count);
+
+  let prev = sampleActorKeyframes(actorDef, 0);
+  let cumDist = 0;
+  let cumCycles = 0;
+
+  for (let i = 1; i < count; i++) {
+    const t = Math.min(durationSec, i * stepSec);
+    const dt = Math.max(0.0001, t - Math.min(durationSec, (i - 1) * stepSec));
+    const cur = sampleActorKeyframes(actorDef, t);
+    const ds = Math.hypot(cur.x - prev.x, cur.z - prev.z);
+    const spd = ds / dt;
+    cumDist += ds;
+    if (spd > 0.14) {
+      cumCycles += ds / blendedForwardStrideAtSpeed(spd);
+    }
+    distArr[i] = cumDist;
+    cycleArr[i] = cumCycles;
+    prev = cur;
+  }
+
+  const seedRaw = actorDef.phaseSeed ?? ((actorDef.id || '').split('').reduce((s, c) => s + c.charCodeAt(0), 0) % 100) / 100;
+  const table = {
+    durationSec,
+    stepSec,
+    count,
+    distArr,
+    cycleArr,
+    phaseOffset: (seedRaw * 0.6180339887) % 1.0
+  };
+  actorDef._gaitTable = table;
+  return table;
+}
+
+function sampleActorGaitProgress(actorDef, durationSec, tSec) {
+  const tbl = ensureActorGaitTable(actorDef, durationSec);
+  const fIdx = clamp(tSec / tbl.stepSec, 0, tbl.count - 1.0001);
+  const i0 = Math.floor(fIdx);
+  const i1 = Math.min(tbl.count - 1, i0 + 1);
+  const frac = fIdx - i0;
+  return {
+    distMeters: lerp(tbl.distArr[i0], tbl.distArr[i1], frac),
+    gaitCycles: lerp(tbl.cycleArr[i0], tbl.cycleArr[i1], frac) + tbl.phaseOffset
+  };
+}
+
+/**
  * Evaluates actor's optical mocap schedule with automatic 0.26s cosine crossfade.
  */
 function sampleMocapSchedule(schedule, tSec) {
@@ -154,7 +383,7 @@ function sampleMocapSchedule(schedule, tSec) {
 }
 
 /**
- * Evaluates annotated ball-touch windows for exact 2-bone ankle/foot surface IK.
+ * Evaluates annotated ball-touch windows for exact foot telemetry.
  */
 function sampleTouchWindows(windows, tSec) {
   if (!windows || windows.length === 0) return null;
@@ -205,10 +434,10 @@ function sampleCameraTrack(camTrack, tSec) {
 export function evaluateScenarioAtTime(scenario, tSec) {
   const dur = scenario.durationSec;
   const clampedT = clamp(tSec, 0, dur);
-  const dtSample = 0.04;
+  const dtSample = 0.03;
   const tPrev = clamp(clampedT - dtSample, 0, dur);
   const tNext = clamp(clampedT + dtSample, 0, dur);
-  const inv2Dt = 1 / Math.max(0.01, tNext - tPrev);
+  const inv2Dt = 1 / Math.max(0.005, tNext - tPrev);
 
   const ballState = sampleSpatialKeyframes(scenario.ballTrack, clampedT);
 
@@ -222,41 +451,69 @@ export function evaluateScenarioAtTime(scenario, tSec) {
   }
 
   const actorStates = scenario.actors.map((actorDef) => {
-    const cur = sampleSpatialKeyframes(actorDef.keyframes, clampedT);
-    const prv = sampleSpatialKeyframes(actorDef.keyframes, tPrev);
-    const nxt = sampleSpatialKeyframes(actorDef.keyframes, tNext);
+    const cur = sampleActorKeyframes(actorDef, clampedT);
+    const prv = sampleActorKeyframes(actorDef, tPrev);
+    const nxt = sampleActorKeyframes(actorDef, tNext);
 
     const vx = (nxt.x - prv.x) * inv2Dt;
     const vz = (nxt.z - prv.z) * inv2Dt;
     const speed = Math.hypot(vx, vz);
 
+    const mocap = sampleMocapSchedule(actorDef.mocapSchedule, clampedT);
+    const activePrimary = mocap ? mocap.primaryClip : null;
+    const activeSecondary = mocap ? mocap.secondaryClip : null;
+    const isSpinOrStunt =
+      cur.rawYaw ||
+      SPIN_OR_STUNT_CLIPS.has(activePrimary) ||
+      SPIN_OR_STUNT_CLIPS.has(activeSecondary);
+
+    // Biomechanical hip-to-velocity alignment when running fast (eliminates sideways crab-sliding!)
+    // Any look-offset toward the ball is transferred naturally to neck/head `scanYaw`.
+    let effectiveYaw = cur.yaw;
+    let effectiveScanYaw = cur.scanYaw || 0;
+    if (!isSpinOrStunt && speed > 1.85) {
+      const moveYaw = Math.atan2(vx, vz);
+      const diff = Math.abs(shortestAngleDiff(cur.yaw, moveYaw));
+      const wAlign =
+        diff <= 2.35
+          ? smoothstep01((speed - 1.85) / 1.35)
+          : smoothstep01((speed - 3.05) / 1.25);
+      if (wAlign > 0.001) {
+        effectiveYaw = lerpAngle(cur.yaw, moveYaw, wAlign);
+        const lookBack = shortestAngleDiff(effectiveYaw, cur.yaw);
+        effectiveScanYaw = clamp(effectiveScanYaw + lookBack * 0.72, -0.52, 0.52);
+      }
+    }
+
     // Centripetal banking lean into sharp turns + forward sprint drive pitch
-    const dYaw = lerpAngle(prv.yaw, nxt.yaw, 1) - prv.yaw;
+    const dYaw = shortestAngleDiff(prv.yaw, nxt.yaw);
     const yawRate = dYaw * inv2Dt;
     const autoBankRoll = clamp(-yawRate * speed * 0.032, -0.22, 0.22);
     const leanRoll = clamp(autoBankRoll + (cur.leanRollOffset || 0), -0.28, 0.28);
     const leanPitch = clamp(speed * 0.022, 0, 0.14);
 
-    const mocap = sampleMocapSchedule(actorDef.mocapSchedule, clampedT);
+    const gait = sampleActorGaitProgress(actorDef, dur, clampedT);
     const ballTouch = sampleTouchWindows(actorDef.touchWindows, clampedT);
 
     return {
       tSec: clampedT,
       x: cur.x,
       z: cur.z,
-      yaw: cur.yaw,
+      yaw: effectiveYaw,
       vx,
       vz,
       speed,
+      distMeters: gait.distMeters,
+      gaitCycles: gait.gaitCycles,
       crouch: cur.crouch,
-      scanYaw: cur.scanYaw,
+      scanYaw: effectiveScanYaw,
       shieldSide: cur.shieldSide,
       showShadow: cur.showShadow,
       leanRoll,
       leanPitch,
-      primaryClip: mocap ? mocap.primaryClip : null,
+      primaryClip: activePrimary,
       clipTime: mocap ? mocap.clipTime : 0,
-      secondaryClip: mocap ? mocap.secondaryClip : null,
+      secondaryClip: activeSecondary,
       secondaryClipTime: mocap ? mocap.secondaryClipTime : 0,
       blendWeight: mocap ? mocap.blendWeight : 0,
       ballTouch

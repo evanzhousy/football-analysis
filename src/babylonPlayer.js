@@ -1,6 +1,11 @@
 const BABYLON = window.BABYLON;
 import { preloadKitTextures, applyBabylonFootballerKit } from './babylonKit.js';
-import { preloadMixamoSoccerLibrary, getMixamoClip } from './mixamoSoccerLibrary.js';
+import {
+  preloadMixamoSoccerLibrary,
+  getMixamoClip,
+  DISCRETE_SKILL_CLIPS,
+  LOCOMOTION_CLIP_SPECS
+} from './mixamoSoccerLibrary.js';
 
 let sharedCharContainer = null;
 let rigPreloadPromise = null;
@@ -15,6 +20,11 @@ const _vPosB = new BABYLON.Vector3();
 
 function clamp(v, lo, hi) {
   return Math.max(lo, Math.min(hi, v));
+}
+
+function smoothstep01(u) {
+  const t = clamp(u, 0, 1);
+  return t * t * (3 - 2 * t);
 }
 
 /**
@@ -313,8 +323,187 @@ function sampleClipFrame(clip, timeSec) {
 }
 
 /**
- * Evaluates Mixamo《Soccer Pack》pose + cosine crossfade + tactical overlays at exact `tSec`.
- * Zero custom leg-twisting IK — 100% pure artist-authored Mixamo motion capture!
+ * Evaluates Hips pelvis position while stripping horizontal root-motion drift (`x, y` in Mixamo's
+ * +90° X-rotated Armature space) on locomotion & upright clips so world `(state.x, state.z)` is
+ * never double-displaced or snapped backward on loop wrap. Preserves vertical bounce (`z`).
+ */
+function evaluateSanitizedHipsPos(clip, frame, outVec) {
+  const raw = clip.hipsPosAnim.evaluate(frame);
+  if (clip.allowHorizontalRootExcursion) {
+    outVec.copyFrom(raw);
+    return;
+  }
+  const rest = clip.hipsRestPos;
+  outVec.set(rest ? rest.x : 0, rest ? rest.y : 2.3146, raw.z);
+}
+
+function isEffectiveDiscreteSkill(clipId, speed) {
+  if (!clipId) return false;
+  if (clipId === 'idle_scan' && speed < 0.42) return true;
+  if (!DISCRETE_SKILL_CLIPS.has(clipId)) return false;
+  // Stationary ball-tap feint looks like skating if actor is already running > 2.25 m/s
+  if (clipId === 'soccer_crossover_feint' && speed > 2.25) return false;
+  return true;
+}
+
+/**
+ * Computes Phase-Locked Stride-Warped Locomotion Blend (`clipA, timeA, clipB, timeB, blendW`)
+ * driven by exact ground distance `distMeters` and normalized `gaitCycles` so stance cleats lock
+ * to the turf across idle -> walk -> jog -> sprint, backpedal, and lateral shuffles.
+ */
+function resolveStrideLockedLocomotion(actorDef, state) {
+  const spd = state.speed || 0;
+  const yaw = state.yaw || 0;
+  const vx = state.vx || 0;
+  const vz = state.vz || 0;
+  const seedRaw =
+    actorDef.phaseSeed ??
+    ((actorDef.id || '').split('').reduce((s, c) => s + c.charCodeAt(0), 0) % 100) / 100;
+  const seedPhase = (seedRaw * 0.6180339887) % 1.0;
+  const seedSec = seedRaw * 1.7;
+
+  const idleClip = (state.crouch || 0) > 0.38 ? 'crouch_jockey_fwd' : 'idle_ready';
+  const idleTime = (state.tSec || 0) + seedSec;
+
+  if (spd <= 0.16) {
+    return { primaryId: idleClip, clipTime: idleTime, secondaryId: null, secondaryTime: 0, blendW: 0 };
+  }
+
+  // Decompose world velocity into character's local body frame (+Z = forward, +X = left)
+  const vFwd = vx * Math.sin(yaw) + vz * Math.cos(yaw);
+  const vLeft = vx * Math.cos(yaw) - vz * Math.sin(yaw);
+  const absFwd = Math.abs(vFwd);
+  const absLeft = Math.abs(vLeft);
+
+  const uGait = (((state.gaitCycles ?? 0) % 1) + 1) % 1;
+  const distMeters = state.distMeters ?? (state.tSec || 0) * spd;
+
+  const fwdPhaseTime = (id) => {
+    const c = getMixamoClip(id);
+    return c ? uGait * c.duration : 0;
+  };
+
+  const dirStrideTime = (id) => {
+    const c = getMixamoClip(id);
+    if (!c) return 0;
+    const spec = LOCOMOTION_CLIP_SPECS[id];
+    const stride = spec ? spec.stride : 1.65;
+    const u = (((distMeters / stride + seedPhase) % 1) + 1) % 1;
+    return u * c.duration;
+  };
+
+  let moveA = 'walk_fwd';
+  let timeA = 0;
+  let moveB = null;
+  let timeB = 0;
+  let moveW = 0;
+
+  if (absLeft > absFwd * 1.15) {
+    // Lateral defensive / off-ball shuffle
+    if (vLeft > 0) {
+      moveA = 'walk_strafe_l';
+      timeA = dirStrideTime('walk_strafe_l');
+      if (spd > 1.25) {
+        moveB = 'crouch_strafe_l';
+        timeB = dirStrideTime('crouch_strafe_l');
+        moveW = smoothstep01((spd - 1.25) / 0.9);
+      }
+    } else {
+      moveA = 'walk_strafe_r';
+      timeA = dirStrideTime('walk_strafe_r');
+      if (spd > 1.55) {
+        moveB = 'crouch_strafe_r';
+        timeB = dirStrideTime('crouch_strafe_r');
+        moveW = smoothstep01((spd - 1.55) / 0.95);
+      }
+    }
+  } else if (vFwd < -0.20) {
+    // Backpedaling / jockeying retreat
+    if (absLeft > absFwd * 0.55) {
+      moveA = 'crouch_jockey_back';
+      timeA = dirStrideTime('crouch_jockey_back');
+    } else if (spd < 1.15) {
+      moveA = 'walk_back';
+      timeA = dirStrideTime('walk_back');
+    } else if (spd < 1.95) {
+      moveA = 'walk_back';
+      timeA = dirStrideTime('walk_back');
+      moveB = 'jog_back';
+      timeB = dirStrideTime('jog_back');
+      moveW = smoothstep01((spd - 1.15) / 0.8);
+    } else {
+      moveA = 'jog_back';
+      timeA = dirStrideTime('jog_back');
+    }
+  } else {
+    // Forward / diagonal-forward progression (Phase-Locked BlendSpace: walk_fwd <-> jog_fwd <-> sprint_fwd)
+    if (spd < 1.50) {
+      moveA = 'walk_fwd';
+      timeA = fwdPhaseTime('walk_fwd');
+    } else if (spd < 2.35) {
+      moveA = 'walk_fwd';
+      timeA = fwdPhaseTime('walk_fwd');
+      moveB = 'jog_fwd';
+      timeB = fwdPhaseTime('jog_fwd');
+      moveW = smoothstep01((spd - 1.50) / 0.85);
+    } else if (spd < 3.15) {
+      if (vLeft > absFwd * 0.48) {
+        moveA = 'jog_strafe_l';
+        timeA = dirStrideTime('jog_strafe_l');
+      } else {
+        moveA = 'jog_fwd';
+        timeA = fwdPhaseTime('jog_fwd');
+      }
+    } else if (spd < 4.35) {
+      moveA = 'jog_fwd';
+      timeA = fwdPhaseTime('jog_fwd');
+      moveB = 'sprint_fwd';
+      timeB = fwdPhaseTime('sprint_fwd');
+      moveW = smoothstep01((spd - 3.15) / 1.20);
+    } else {
+      moveA = 'sprint_fwd';
+      timeA = fwdPhaseTime('sprint_fwd');
+    }
+  }
+
+  // Collapse completely blended pairs cleanly
+  if (moveB && moveW >= 0.999) {
+    moveA = moveB;
+    timeA = timeB;
+    moveB = null;
+    timeB = 0;
+    moveW = 0;
+  } else if (moveW <= 0.001) {
+    moveB = null;
+    timeB = 0;
+    moveW = 0;
+  }
+
+  // Smooth start/stop feathering (`0.16 .. 0.62 m/s`) so decelerating to rest never freezes a lifted knee
+  if (spd < 0.62) {
+    const domClip = moveB && moveW > 0.5 ? moveB : moveA;
+    const domTime = moveB && moveW > 0.5 ? timeB : timeA;
+    const wMove = smoothstep01((spd - 0.16) / 0.46);
+    return {
+      primaryId: idleClip,
+      clipTime: idleTime,
+      secondaryId: domClip,
+      secondaryTime: domTime,
+      blendW: wMove
+    };
+  }
+
+  return {
+    primaryId: moveA,
+    clipTime: timeA,
+    secondaryId: moveB,
+    secondaryTime: timeB,
+    blendW: moveW
+  };
+}
+
+/**
+ * Evaluates Mixamo《Soccer Pack》pose + Stride-Warped Locomotion BlendSpace + tactical overlays at exact `tSec`.
  */
 export function updateBabylonPlayerPose(playerModel, state, overlaysConfig) {
   const { root, posePivot, groundRing, labelPlane, scanCone, coverShadow } = playerModel;
@@ -352,21 +541,39 @@ export function updateBabylonPlayerPose(playerModel, state, overlaysConfig) {
 
   if (!playerModel.rigReady) return;
 
-  // Fallback automatic locomotion selection if actor has no explicit mocapSchedule
   let primaryId = state.primaryClip;
   let clipTime = state.clipTime ?? state.tSec ?? 0;
   let secondaryId = state.secondaryClip || null;
   let secondaryTime = state.secondaryClipTime ?? 0;
   let blendW = clamp(state.blendWeight ?? 0, 0, 1);
 
-  if (!primaryId) {
+  if (!state.showcaseMode) {
     const spd = state.speed || 0;
-    const seed = (playerModel.actorDef.phaseSeed || 0) * 1.3;
-    clipTime = (state.tSec || 0) + seed;
-    if (spd > 4.2) primaryId = 'sprint_fwd';
-    else if (spd > 1.6) primaryId = 'jog_fwd';
-    else if (spd > 0.45) primaryId = 'walk_fwd';
-    else primaryId = (state.crouch || 0) > 0.4 ? 'crouch_jockey_fwd' : 'idle_ready';
+    const loco = resolveStrideLockedLocomotion(playerModel.actorDef, state);
+    const locoDomClip = loco.secondaryId && loco.blendW > 0.5 ? loco.secondaryId : loco.primaryId;
+    const locoDomTime = loco.secondaryId && loco.blendW > 0.5 ? loco.secondaryTime : loco.clipTime;
+
+    const priSkill = isEffectiveDiscreteSkill(primaryId, spd);
+    const secSkill = isEffectiveDiscreteSkill(secondaryId, spd);
+
+    if (!priSkill && !secSkill) {
+      primaryId = loco.primaryId;
+      clipTime = loco.clipTime;
+      secondaryId = loco.secondaryId;
+      secondaryTime = loco.secondaryTime;
+      blendW = loco.blendW;
+    } else if (priSkill && !secSkill) {
+      if (secondaryId && blendW > 0.001) {
+        secondaryId = locoDomClip;
+        secondaryTime = locoDomTime;
+      } else {
+        secondaryId = null;
+        blendW = 0;
+      }
+    } else if (!priSkill && secSkill) {
+      primaryId = locoDomClip;
+      clipTime = locoDomTime;
+    }
   }
 
   const clipA = getMixamoClip(primaryId);
@@ -378,14 +585,12 @@ export function updateBabylonPlayerPose(playerModel, state, overlaysConfig) {
 
   const { boneNodes, restRot } = playerModel;
 
-  // 1. Evaluate Hips root pelvis position (with FK-calibrated sole grounding!)
+  // 1. Evaluate Hips pelvis height with horizontal root-drift stripped on locomotion/upright clips!
   const hipsNode = boneNodes.get('mixamorig:Hips');
   if (hipsNode && clipA.hipsPosAnim) {
-    const pA = clipA.hipsPosAnim.evaluate(frameA);
-    _vPosA.copyFrom(pA);
+    evaluateSanitizedHipsPos(clipA, frameA, _vPosA);
     if (clipB && clipB.hipsPosAnim) {
-      const pB = clipB.hipsPosAnim.evaluate(frameB);
-      _vPosB.copyFrom(pB);
+      evaluateSanitizedHipsPos(clipB, frameB, _vPosB);
       BABYLON.Vector3.LerpToRef(_vPosA, _vPosB, blendW, hipsNode.position);
     } else {
       hipsNode.position.copyFrom(_vPosA);
