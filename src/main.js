@@ -1153,6 +1153,50 @@ window.__STUDIO_DEBUG__ = {
     scene.render();
     scene.render();
     const heroObj = activeActors.find((a) => isHeroRole(a.def.role));
+    let biomechanics = null;
+    if (heroObj && heroObj.model?.boneNodes) {
+      const bn = heroObj.model.boneNodes;
+      for (const tn of bn.values()) tn.computeWorldMatrix(true);
+      const posOf = (n) => {
+        const node = bn.get(n);
+        if (!node) return null;
+        const p = node.getAbsolutePosition();
+        return [Number(p.x.toFixed(4)), Number(p.y.toFixed(4)), Number(p.z.toFixed(4))];
+      };
+      const hipsP = posOf('mixamorig:Hips');
+      const neckP = posOf('mixamorig:Neck');
+      const lFootP = posOf('mixamorig:LeftFoot');
+      const lToeP = posOf('mixamorig:LeftToeBase');
+      const rFootP = posOf('mixamorig:RightFoot');
+      const rToeP = posOf('mixamorig:RightToeBase');
+      const ballP = [
+        Number(matchBall.position.x.toFixed(4)),
+        Number(matchBall.position.y.toFixed(4)),
+        Number(matchBall.position.z.toFixed(4))
+      ];
+      const unitY = (a, b) => {
+        if (!a || !b) return 0;
+        const dx = b[0] - a[0];
+        const dy = b[1] - a[1];
+        const dz = b[2] - a[2];
+        const len = Math.hypot(dx, dy, dz) || 1;
+        return Number((dy / len).toFixed(4));
+      };
+      const dist3 = (a, b) =>
+        a && b ? Number(Math.hypot(a[0] - b[0], a[1] - b[1], a[2] - b[2]).toFixed(4)) : 99;
+      biomechanics = {
+        hipsPos: hipsP,
+        neckPos: neckP,
+        spineUpDot: unitY(hipsP, neckP),
+        lFootPos: lFootP,
+        rFootPos: rFootP,
+        lToeSlopeY: unitY(lFootP, lToeP),
+        rToeSlopeY: unitY(rFootP, rToeP),
+        ballPos: ballP,
+        minFootToBallDist: Math.min(dist3(lFootP, ballP), dist3(rFootP, ballP), dist3(lToeP, ballP), dist3(rToeP, ballP)),
+        activeMocapDebug: heroObj.model.activeMocapDebug || ''
+      };
+    }
     return {
       scenario: SCENARIOS[activeScenarioIndex].id,
       positionGroup: SCENARIOS[activeScenarioIndex].positionGroup,
@@ -1160,7 +1204,8 @@ window.__STUDIO_DEBUG__ = {
       currentSec,
       videoTime: zhibo8ClipEl.currentTime,
       actorCount: activeActors.length,
-      pedriTelemetry: heroObj ? heroObj.model.telemetry : null
+      pedriTelemetry: heroObj ? heroObj.model.telemetry : null,
+      biomechanics
     };
   },
   async inspectMocapClip(clipId, sec, customCam = null, showXray = false, showLabels = false) {

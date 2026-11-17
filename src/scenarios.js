@@ -556,7 +556,10 @@ export function evaluateScenarioAtTime(scenario, tSec) {
         const vcFrame = vcEntry.data.getFrame(clampedT);
         if (vcFrame) {
           actorStates[i].videoCaptureFrame = vcFrame;
-          actorStates[i].videoCaptureWeight = 0.85; // blend: 85% video, 15% FK
+          actorStates[i].videoCaptureWeight = 0.94; // 94% real HD video 3D mocap + 6% Mixamo base
+          if (vcFrame.ws && typeof vcFrame.y === 'number' && vcFrame.c > 0.02) {
+            actorStates[i].yaw = lerpAngle(actorStates[i].yaw, vcFrame.y, clamp01(vcFrame.c * 0.92));
+          }
         }
       }
     }
@@ -592,32 +595,32 @@ const PEDRI_SCENARIOS = [
     index: '01',
     durationSec: 4.0,
     title: '背身紧贴顶防 · 沉肩顺球半转身',
-    moveName: '回头预扫描 + 脚内侧缓冲顺球半转身 (Scan & Cushion Half-Turn)',
-    zoneTag: '中圈前沿 (4.00s 1:1)',
-    matchRef: '直播吧原片 1:1 帧同步：2025-04-23 巴萨 vs 马略卡 (4.00s 单镜头特写)',
-    pressureType: '黄衣 #30 正后方贴背抢位 + #5 侧翼封堵',
+    moveName: '回头预扫描 + 右足凌空缓冲顺球半转身 (Scan & Aerial Cushion Half-Turn)',
+    zoneTag: '中圈前沿 (4.00s 原片3D动捕)',
+    matchRef: '直播吧原片 1:1 帧同步 + MediaPipe Heavy 3D 视频动捕：2025-04-23 巴萨 vs 马略卡 (4.00s)',
+    pressureType: '黄衣 #30 紧贴顶防 + #5 侧翼封堵',
     metrics: {
-      touches: '2.04s 右足内侧凌空顺球',
-      feintAngle: '180° 敞髋顺时针半转身',
+      touches: '2.28s 右足凌空卸球 + 2.72s 左足趟顺',
+      feintAngle: '提前敞髋顺时针半转身推进',
       scans: '0.4s–1.4s 两次回头扫描',
-      escapeWindow: '1.85s–2.55s (0.70s)'
+      escapeWindow: '1.95s–2.75s (0.80s)'
     },
     keypoints: [
-      '0.00s–1.75s：后场左路高空球吊入中圈前沿，#8 佩德里迎球回撤（walk_back）并连续扭头扫描，感知马略卡黄衣 #30 正从右后方紧贴顶防。',
-      '1.85s–2.55s：高空球从右肩上方坠落瞬间，佩德里左腿稳扎支撑、左臂架开 #30，敞开右髋抬起右脚内侧（y = 0.35m 足踝IK凌空缓冲）把球柔和卸顺并 180° 半转身！',
-      '2.60s–4.00s：马略卡 #30 重心前冲刹不住车被彻底甩在身后，佩德里切换爆发冲刺（sprint_fwd）向右推进打穿首线。'
+      '0.00s–1.65s：后场左路 #5 伊尼戈高空球挑入中圈前沿，#8 佩德里迎球回撤并连续扭头扫描，提前顺时针敞开骨盆卡住马略卡黄衣 #30 身位。',
+      '1.95s–2.52s（原片 3D 视频动捕直驱）：高空球从左后方坠落瞬间，佩德里大跨步弓步前压、左脚稳扎草皮作轴、右臂向右侧水平张开维持平衡，右腿（#8 裤印侧）向后屈膝抬起（t = 2.28s, y ≈ 0.35m）柔和卸顺高球！',
+      '2.60s–4.00s：皮球于 2.52s 落地弹顺，马略卡 #30 重心前冲失位，佩德里顺势完成顺时针转身，胸口朝向右前方大步加速突进打穿首线。'
     ],
     phases: [
-      { timeRange: [0.0, 1.2], label: '0.0–1.2s 迎高球回撤扫描', desc: '左路高空球飞入镜头，佩德里回撤卡位并扭头扫描身后黄衣 #30 贴防路线。' },
-      { timeRange: [1.2, 1.85], label: '1.2–1.85s 贴背抗压沉髋', desc: '马略卡 #30 紧贴后背上抢，佩德里降重心左臂架开防守人预判高球落点。' },
-      { timeRange: [1.85, 2.65], label: '1.85–2.65s 敞髋凌空顺球转身', desc: '右髋外展端平右足内侧（y=0.35m 足踝IK锁定）凌空卸球缓冲，顺势 180° 半转身抹过 #30！' },
-      { timeRange: [2.65, 4.0], label: '2.65–4.0s 爆发推进甩开', desc: '#30 失位踉跄留在原地，佩德里带球向右高速突进完成破首线摆脱。' }
+      { timeRange: [0.0, 1.25], label: '0.0–1.25s 迎高球回撤扫描', desc: '左路高空球吊入镜头，佩德里回撤卡位并扭头扫描马略卡 #30 上抢路线。' },
+      { timeRange: [1.25, 1.95], label: '1.25–1.95s 提前敞髋卡位', desc: '高球下落前佩德里提前顺时针敞开髋部、张开右臂稳住重心，左臂感知 #30 贴防。' },
+      { timeRange: [1.95, 2.75], label: '1.95–2.75s 原片动捕凌空顺球', desc: '左脚前跨扎稳作轴、右臂外展平衡，2.28s 抬右腿向后屈膝缓冲坠落高球，2.52s 球落草皮顺势转身！' },
+      { timeRange: [2.75, 4.0], label: '2.75–4.0s 爆发推进甩开', desc: '#30 刹不住车被甩在身后，佩德里大步冲刺向右前方推进完成摆脱。' }
     ],
-    defaultFocus: [1.8, 0, 6.2],
+    defaultFocus: [1.9, 0, 6.2],
     camTrack: [
-      { t: 0.0, pos: [12.8, 4.3, 8.2], target: [1.2, 0.95, 8.6], fov: 30 },
-      { t: 2.1, pos: [12.8, 4.3, 7.4], target: [1.6, 0.92, 7.6], fov: 30 },
-      { t: 4.0, pos: [12.6, 4.3, 3.8], target: [2.2, 0.95, 2.2], fov: 30 }
+      { t: 0.0, pos: [10.4, 2.35, 8.35], target: [1.2, 0.96, 8.6], fov: 22 },
+      { t: 2.3, pos: [10.2, 2.25, 8.05], target: [1.55, 0.92, 8.2], fov: 21 },
+      { t: 4.0, pos: [11.2, 2.35, 3.85], target: [3.2, 0.94, 2.4], fov: 22 }
     ],
     actors: [
       {
@@ -629,22 +632,24 @@ const PEDRI_SCENARIOS = [
         hairColor: '#231710',
         label: '#8 佩德里 Pedri',
         keyframes: [
-          { t: 0.0, x: 1.1, z: 7.4, yaw: 0.12, scanYaw: -1.15, crouch: 0.15 },
-          { t: 0.95, x: 1.15, z: 8.2, yaw: 0.08, scanYaw: 1.05, crouch: 0.25 },
-          { t: 1.78, x: 1.28, z: 8.68, yaw: 0.18, scanYaw: 0.0, crouch: 0.46, shieldSide: 'L', leanRoll: 0.10 },
-          { t: 2.25, x: 1.78, z: 8.15, yaw: -1.65, crouch: 0.42, shieldSide: 'L', leanRoll: -0.14 },
-          { t: 2.68, x: 2.25, z: 6.75, yaw: -2.98, crouch: 0.22 },
-          { t: 4.0, x: 2.85, z: 0.65, yaw: -3.04, crouch: 0.12 }
+          { t: 0.0, x: 1.12, z: 7.45, yaw: 0.12, scanYaw: -1.10, crouch: 0.15 },
+          { t: 0.95, x: 1.18, z: 8.25, yaw: -0.25, scanYaw: 0.95, crouch: 0.24 },
+          { t: 1.65, x: 1.34, z: 8.55, yaw: -2.15, scanYaw: 0.30, crouch: 0.38 },
+          { t: 2.00, x: 1.46, z: 8.40, yaw: -2.40, scanYaw: 0.20, crouch: 0.42 },
+          { t: 2.28, x: 1.56, z: 8.22, yaw: -3.02, scanYaw: 0.10, crouch: 0.40 },
+          { t: 2.55, x: 1.76, z: 7.88, yaw: 3.04, scanYaw: 0.0, crouch: 0.30 },
+          { t: 2.85, x: 2.15, z: 6.95, yaw: 2.22, crouch: 0.20 },
+          { t: 4.0, x: 4.35, z: 1.85, yaw: 2.15, crouch: 0.12 }
         ],
         mocapSchedule: [
           { start: 0.0, end: 1.15, clip: 'walk_back', rate: 1.05 },
-          { start: 1.15, end: 1.78, clip: 'crouch_jockey_back', rate: 0.92 },
-          { start: 1.78, end: 2.62, clip: 'soccer_half_turn_180', rate: 1.35, offset: 0.22 },
-          { start: 2.62, end: 4.0, clip: 'sprint_fwd', rate: 1.08 }
+          { start: 1.15, end: 1.82, clip: 'crouch_jockey_back', rate: 0.92 },
+          { start: 1.82, end: 2.68, clip: 'soccer_half_turn_180', rate: 1.28, offset: 0.20 },
+          { start: 2.68, end: 4.0, clip: 'sprint_fwd', rate: 1.08 }
         ],
         touchWindows: [
-          { start: 1.74, peak: 2.04, end: 2.42, foot: 'R', type: 'inside', action: 'receive', maxWeight: 0.98 },
-          { start: 2.82, peak: 3.02, end: 3.26, foot: 'R', type: 'outside', action: 'dribble', maxWeight: 0.84 }
+          { start: 2.12, peak: 2.28, end: 2.48, foot: 'R', type: 'inside', action: 'receive', maxWeight: 0.85 },
+          { start: 2.60, peak: 2.74, end: 2.90, foot: 'L', type: 'inside', action: 'dribble', maxWeight: 0.78 }
         ]
       },
       {
@@ -659,10 +664,10 @@ const PEDRI_SCENARIOS = [
         keyframes: [
           { t: 0.0, x: 0.65, z: 5.2, yaw: 0.08, crouch: 0.2 },
           { t: 1.35, x: 0.72, z: 7.55, yaw: 0.12, crouch: 0.45 },
-          { t: 1.95, x: 0.62, z: 8.55, yaw: 0.22, crouch: 0.65 },
-          { t: 2.45, x: 0.38, z: 9.25, yaw: 0.45, crouch: 0.6 },
-          { t: 3.1, x: 0.85, z: 8.4, yaw: -2.45, crouch: 0.35 },
-          { t: 4.0, x: 1.65, z: 5.1, yaw: -2.95, crouch: 0.2 }
+          { t: 2.05, x: 0.62, z: 8.62, yaw: 0.20, crouch: 0.62 },
+          { t: 2.55, x: 0.45, z: 9.15, yaw: 0.40, crouch: 0.58 },
+          { t: 3.15, x: 0.95, z: 8.25, yaw: 2.45, crouch: 0.35 },
+          { t: 4.0, x: 2.25, z: 5.35, yaw: 2.28, crouch: 0.2 }
         ],
         mocapSchedule: [
           { start: 0.0, end: 1.6, clip: 'jog_fwd', rate: 1.12 },
@@ -682,10 +687,10 @@ const PEDRI_SCENARIOS = [
         label: '马略卡 #5 马斯卡雷尔',
         phaseSeed: 0.8,
         keyframes: [
-          { t: 0.0, x: 4.8, z: 5.0, yaw: -0.35, crouch: 0.2 },
-          { t: 2.0, x: 4.5, z: 5.8, yaw: -0.55, crouch: 0.35 },
-          { t: 3.0, x: 4.2, z: 4.2, yaw: -2.5, crouch: 0.3 },
-          { t: 4.0, x: 4.0, z: 1.8, yaw: -2.85, crouch: 0.2 }
+          { t: 0.0, x: 5.4, z: 4.4, yaw: -0.35, crouch: 0.2 },
+          { t: 2.0, x: 5.2, z: 4.8, yaw: -0.55, crouch: 0.35 },
+          { t: 3.0, x: 5.6, z: 2.6, yaw: -2.5, crouch: 0.3 },
+          { t: 4.0, x: 6.2, z: 0.2, yaw: 2.35, crouch: 0.2 }
         ]
       },
       {
@@ -714,15 +719,17 @@ const PEDRI_SCENARIOS = [
     ballTrack: [
       { t: 0.0, x: 0.86, y: 0.115, z: 16.36 },
       { t: 0.20, x: 0.90, y: 0.14, z: 16.22 },
-      { t: 1.08, x: 1.22, y: 2.68, z: 11.45, arcY: 0.55 },
-      { t: 1.66, x: 1.46, y: 1.32, z: 9.32, ease: 'linear' },
-      { t: 2.04, x: 1.72, y: 0.35, z: 8.42, ease: 'linear' },
-      { t: 2.44, x: 2.15, y: 0.115, z: 7.25 },
-      { t: 3.02, x: 2.54, y: 0.115, z: 4.88 },
-      { t: 4.0, x: 3.02, y: 0.115, z: -0.15 }
+      { t: 1.12, x: 1.18, y: 2.75, z: 11.85, arcY: 0.55 },
+      { t: 1.80, x: 1.36, y: 1.88, z: 9.48, ease: 'linear' },
+      { t: 2.00, x: 1.40, y: 1.42, z: 9.06, ease: 'linear' },
+      { t: 2.28, x: 1.44, y: 0.35, z: 8.68, ease: 'linear' },
+      { t: 2.52, x: 1.72, y: 0.115, z: 8.32, ease: 'linear' },
+      { t: 2.74, x: 2.08, y: 0.115, z: 7.42 },
+      { t: 3.30, x: 3.32, y: 0.115, z: 4.25 },
+      { t: 4.0, x: 4.78, y: 0.115, z: 1.05 }
     ],
-    pedriRibbon: [[1.1, 0.06, 7.4], [1.28, 0.06, 8.68], [1.85, 0.06, 8.1], [2.4, 0.06, 6.2], [2.85, 0.06, 0.65]],
-    overshootRibbon: [[0.65, 0.05, 5.2], [0.62, 0.05, 8.55], [0.38, 0.05, 9.25]]
+    pedriRibbon: [[1.12, 0.06, 7.45], [1.34, 0.06, 8.55], [1.56, 0.06, 8.22], [2.15, 0.06, 6.95], [4.35, 0.06, 1.85]],
+    overshootRibbon: [[0.65, 0.05, 5.2], [0.62, 0.05, 8.62], [0.45, 0.05, 9.15]]
   },
 
   // ============================================================================

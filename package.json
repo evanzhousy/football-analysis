@@ -3,8 +3,10 @@
   "version": "2.0.0",
   "description": "Babylon.js 7.54 3D Tactical Studio of Pedri (#8) with Watertight 65-Bone Mixamo Athlete & 32-Clip Official Soccer Pack",
   "private": true,
+  "type": "module",
   "scripts": {
     "dev": "python3 -m http.server 5173",
-    "start": "python3 -m http.server 5173"
+    "start": "python3 -m http.server 5173",
+    "qa": "node scripts/dual_qa_audit.mjs"
   }
 }

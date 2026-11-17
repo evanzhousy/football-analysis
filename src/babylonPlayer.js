@@ -557,6 +557,7 @@ export function updateBabylonPlayerPose(playerModel, state, overlaysConfig) {
   root.rotation.y = state.yaw || 0;
 
   // Gentle centripetal body banking on sharp cuts (bounded strictly to ±9° on whole-body pivot, zero mesh distortion!)
+  posePivot.position.y = 0;
   posePivot.rotation.z = clamp(state.leanRoll || 0, -0.15, 0.15);
   posePivot.rotation.x = clamp((state.leanPitch || 0) * 0.55, -0.08, 0.10);
 
@@ -661,15 +662,14 @@ export function updateBabylonPlayerPose(playerModel, state, overlaysConfig) {
     tn.rotationQuaternion.copyFrom(_qOut);
   }
 
-  // 3. Damp ground sky-kicks / pelvis whip & solve Anatomical Two-Bone Leg + Ankle Ball-Touch IK
+  // 3. Damp ground sky-kicks / pelvis whip, apply real Video-to-3D Motion Capture when available,
+  //    then solve Anatomical Ball-Touch IK (scaled down gently when VideoMocap already drives the limbs)
   dampGroundSkyKickAndPelvisWhip(playerModel, state, primaryId, secondaryId, blendW);
+  const vcW = state.videoCaptureFrame
+    ? applyVideoCaptureFrame(playerModel, state.videoCaptureFrame, state, state.videoCaptureWeight ?? 0.90)
+    : 0;
+  state._vcAppliedW = vcW;
   applyAnatomicalBallTouchIK(playerModel, state, primaryId, secondaryId);
-
-  // 3b. Video capture override: if real video-extracted 3D joints are available, apply them
-  //     This overrides the hand-coded IK with actual player movements from the match footage.
-  if (state.videoCaptureFrame) {
-    applyVideoCaptureFrame(playerModel, state.videoCaptureFrame, state, state.videoCaptureWeight ?? 0.85);
-  }
 
   // 4. Natural bounded head pre-scan rotation (`scanYaw` divided gently across Neck & Head, max ±28°)
   if (Math.abs(state.scanYaw || 0) > 0.01) {
@@ -732,12 +732,13 @@ export function updateBabylonPlayerPose(playerModel, state, overlaysConfig) {
   // 6. Compute real-time biomechanical telemetry directly from IK-resolved Mixamo skeleton
   const pctA = Math.round((1 - blendW) * 100);
   const pctB = Math.round(blendW * 100);
+  const vcBadge = vcW > 0.05 ? ` + VideoMocap(${Math.round(vcW * 100)}%)` : '';
   const ikBadge =
     state.ballTouch && state.ballTouch.weight > 0.15
-      ? ` + TouchIK(${state.ballTouch.foot}:${Math.round(state.ballTouch.weight * 100)}%)`
+      ? ` + TouchIK(${state.ballTouch.foot}:${Math.round(state.ballTouch.weight * (1 - 0.68 * vcW) * 100)}%)`
       : '';
   playerModel.activeMocapDebug =
-    (clipB ? `${primaryId} (${pctA}%) → ${secondaryId} (${pctB}%)` : `${primaryId} (100%)`) + ikBadge;
+    (clipB ? `${primaryId} (${pctA}%) → ${secondaryId} (${pctB}%)` : `${primaryId} (100%)`) + vcBadge + ikBadge;
 
   const rLeg = boneNodes.get('mixamorig:RightLeg');
   const lLeg = boneNodes.get('mixamorig:LeftLeg');
@@ -754,7 +755,7 @@ export function updateBabylonPlayerPose(playerModel, state, overlaysConfig) {
     : 0.3;
   const ankleEu = activeFootNode ? activeFootNode.rotationQuaternion.toEulerAngles() : BABYLON.Vector3.Zero();
 
-  let footLabel = '双脚动态盘带支撑';
+  let footLabel = vcW > 0.25 ? `原片3D视频动捕 (${Math.round(vcW * 100)}%)` : '双脚动态盘带支撑';
   if (state.ballTouch && state.ballTouch.weight > 0.15) {
     const fSide = state.ballTouch.foot === 'L' ? '左脚' : '右脚';
     const act = state.ballTouch.action;
@@ -772,10 +773,13 @@ export function updateBabylonPlayerPose(playerModel, state, overlaysConfig) {
         : act === 'strike'
         ? '脚内侧推传/兜射'
         : '脚内侧扣顺';
-    footLabel = `${fSide}${fPart} · IK ${Math.round(state.ballTouch.weight * 100)}%`;
+    footLabel =
+      vcW > 0.25
+        ? `${fSide}${fPart} · 视频动捕 ${Math.round(vcW * 100)}%`
+        : `${fSide}${fPart} · IK ${Math.round(state.ballTouch.weight * 100)}%`;
   }
 
-  playerModel.telemetry.activeClip = clipB ? `${primaryId}+${secondaryId}` : primaryId;
+  playerModel.telemetry.activeClip = (clipB ? `${primaryId}+${secondaryId}` : primaryId) + (vcW > 0.25 ? '+VideoMocap' : '');
   playerModel.telemetry.activeFoot = footLabel;
   playerModel.telemetry.kneeFlexDeg = Math.round(((Math.max(kneeAngleRad, lKneeRad) * 180) / Math.PI));
   playerModel.telemetry.anklePitchDeg = Math.round(((ankleEu.x * 180) / Math.PI) % 90);
@@ -1058,7 +1062,8 @@ function applyAnatomicalBallTouchIK(playerModel, state, primaryId, secondaryId) 
   const poleOutFactor = 0.34 + Math.max(0, turnoutRad) * 0.65;
   const poleDirWorld = Fwd.scale(0.86).add(Out.scale(poleOutFactor)).add(Up.scale(0.12)).normalize();
 
-  solveTwoBoneLegIK(playerModel, isLeft, AGoal, poleDirWorld, turnoutRad, toeDirGoal, touch.weight);
+  const effWeight = touch.weight * (1 - 0.85 * clamp(state._vcAppliedW || 0, 0, 1));
+  solveTwoBoneLegIK(playerModel, isLeft, AGoal, poleDirWorld, turnoutRad, toeDirGoal, effWeight);
 }
 
 /**
