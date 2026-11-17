@@ -36,7 +36,7 @@ export function createBabylonPitchEnvironment(scene) {
   mainFlood.specular = new BABYLON.Color3(0.95, 0.95, 0.92);
   mainFlood.intensity = 2.35;
   mainFlood.shadowMinZ = 4;
-  mainFlood.shadowMaxZ = 115;
+  mainFlood.shadowMaxZ = 145;
 
   const shadowGen = new BABYLON.ShadowGenerator(2048, mainFlood);
   shadowGen.usePercentageCloserFiltering = true;
@@ -53,10 +53,10 @@ export function createBabylonPitchEnvironment(scene) {
   rimFlood.diffuse = new BABYLON.Color3(0.75, 0.86, 1.0);
   rimFlood.intensity = 0.82;
 
-  // 3. Mowed UEFA Grass Turf with Organic Blade Grain
+  // 3. Mowed UEFA Grass Turf with Organic Blade Grain (Full Two-Box Stadium: Z = -34m .. +50m, Center at Z = +8m)
   const turfTex = new BABYLON.DynamicTexture('TurfMowTex', { width: 1024, height: 1024 }, scene, true);
   const tCtx = turfTex.getContext();
-  const stripes = 16;
+  const stripes = 20;
   const stripeH = 1024 / stripes;
   for (let i = 0; i < stripes; i++) {
     tCtx.fillStyle = i % 2 === 0 ? '#1d5b34' : '#23693d';
@@ -74,13 +74,13 @@ export function createBabylonPitchEnvironment(scene) {
   turfTex.anisotropicFilteringLevel = 8;
 
   const pitchW = 56;
-  const pitchL = 68;
+  const pitchL = 84; // Z from -34m (attacking goal) to +50m (defensive build-up goal), halfway at Z = +8m
   const turfMesh = BABYLON.MeshBuilder.CreateGround(
     'TurfGround',
-    { width: pitchW + 12, height: pitchL + 12, subdivisions: 2 },
+    { width: pitchW + 14, height: pitchL + 16, subdivisions: 2 },
     scene
   );
-  turfMesh.position.set(0, 0, -3);
+  turfMesh.position.set(0, 0, 8);
   turfMesh.receiveShadows = true;
   turfMesh.parent = pitchRoot;
 
@@ -91,8 +91,8 @@ export function createBabylonPitchEnvironment(scene) {
   turfMesh.material = turfMat;
 
   // Dark stadium surround apron
-  const apronMesh = BABYLON.MeshBuilder.CreateGround('StadiumApron', { width: 170, height: 170 }, scene);
-  apronMesh.position.set(0, -0.025, 0);
+  const apronMesh = BABYLON.MeshBuilder.CreateGround('StadiumApron', { width: 200, height: 210 }, scene);
+  apronMesh.position.set(0, -0.025, 8);
   apronMesh.parent = pitchRoot;
   const apronMat = new BABYLON.PBRMetallicRoughnessMaterial('ApronPBR', scene);
   apronMat.baseColor = new BABYLON.Color3(0.04, 0.065, 0.095);
@@ -123,8 +123,8 @@ export function createBabylonPitchEnvironment(scene) {
     addGroundStrip(`${prefix}_right`, cx + w / 2, cz, t, h);
   }
 
-  // Touchlines, goal line (Z = -34), defensive cut (Z = +28), halfway line (Z = +8)
-  addLineRect('OuterPitch', 0, -3, pitchW, 62, 0.16);
+  // Touchlines, attacking goal line (Z = -34), defensive goal line (Z = +50), halfway line (Z = +8)
+  addLineRect('OuterPitch', 0, 8, pitchW, pitchL, 0.16);
   addGroundStrip('HalfwayLine', 0, 8, pitchW, 0.15, 0.013);
 
   // Center Circle (R = 9.15m at Z = +8) & Spot
@@ -164,57 +164,74 @@ export function createBabylonPitchEnvironment(scene) {
   penSpot.material = lineMat;
   penSpot.parent = pitchRoot;
 
-  // Penalty Arc outside Z = -17.5m (centered at Z = -23m, R = 9.15m -> sin(a) > (5.5/9.05) => a in [0.65, PI - 0.65])
   addRingOnTurf('PenaltyArc', 0, -23, 8.98, 9.14, 0.65, Math.PI - 1.30, 44);
 
-  // Subtle Zone 14 Tactical Box
+  // Defensive Build-Up Penalty Area & 6-Yard Goal Area at Z = +50m (for CB / FB Backline Press-Escape!)
+  addLineRect('DefPenaltyBox', 0, 41.75, 34, 16.5, 0.14);
+  addLineRect('DefSixYardBox', 0, 47.25, 16, 5.5, 0.14);
+
+  const defPenSpot = BABYLON.MeshBuilder.CreateDisc('DefPenaltySpot', { radius: 0.22, tessellation: 24 }, scene);
+  defPenSpot.rotation.x = Math.PI / 2;
+  defPenSpot.position.set(0, 0.014, 39);
+  defPenSpot.material = lineMat;
+  defPenSpot.parent = pitchRoot;
+
+  addRingOnTurf('DefPenaltyArc', 0, 39, 8.98, 9.14, Math.PI + 0.65, Math.PI - 1.30, 44);
+
+  // Subtle Zone 14 Tactical Box (Attacking) & Build-Up Zone 5/6 Guide (Defensive)
   const z14Mat = new BABYLON.StandardMaterial('Zone14Mat', scene);
   z14Mat.disableLighting = true;
   z14Mat.emissiveColor = new BABYLON.Color3(0.96, 0.79, 0.27);
-  z14Mat.alpha = 0.09;
+  z14Mat.alpha = 0.08;
   z14Mat.backFaceCulling = false;
   const z14 = BABYLON.MeshBuilder.CreateGround('Zone14Guide', { width: 14, height: 9 }, scene);
   z14.position.set(0, 0.008, -13);
   z14.material = z14Mat;
   z14.parent = pitchRoot;
 
-  // 5. 3D Attacking Goalframe & Net at Z = -34m
+  // 5. 3D Goalframes & Nets at Both Ends (Z = -34m Attacking & Z = +50m Defensive)
   const postMat = new BABYLON.PBRMetallicRoughnessMaterial('GoalPostMat', scene);
   postMat.baseColor = new BABYLON.Color3(0.97, 0.98, 0.99);
   postMat.metallic = 0.32;
   postMat.roughness = 0.24;
-
-  const goalW = 7.32;
-  const goalH = 2.44;
-  const goalD = 2.0;
-
-  const leftPost = BABYLON.MeshBuilder.CreateCylinder('LeftPost', { diameter: 0.13, height: goalH, tessellation: 18 }, scene);
-  leftPost.position.set(-goalW / 2, goalH / 2, -34);
-  leftPost.material = postMat;
-  leftPost.parent = pitchRoot;
-  shadowGen.addShadowCaster(leftPost);
-
-  const rightPost = leftPost.clone('RightPost');
-  rightPost.position.set(goalW / 2, goalH / 2, -34);
-  rightPost.parent = pitchRoot;
-  shadowGen.addShadowCaster(rightPost);
-
-  const crossbar = BABYLON.MeshBuilder.CreateCylinder('Crossbar', { diameter: 0.13, height: goalW + 0.14, tessellation: 18 }, scene);
-  crossbar.rotation.z = Math.PI / 2;
-  crossbar.position.set(0, goalH, -34);
-  crossbar.material = postMat;
-  crossbar.parent = pitchRoot;
-  shadowGen.addShadowCaster(crossbar);
 
   const netMat = new BABYLON.StandardMaterial('GoalNetMat', scene);
   netMat.disableLighting = true;
   netMat.emissiveColor = new BABYLON.Color3(0.84, 0.90, 0.95);
   netMat.wireframe = true;
   netMat.alpha = 0.22;
-  const netBox = BABYLON.MeshBuilder.CreateBox('GoalNet', { width: goalW, height: goalH, depth: goalD, updatable: false }, scene);
-  netBox.position.set(0, goalH / 2, -34 - goalD / 2);
-  netBox.material = netMat;
-  netBox.parent = pitchRoot;
+
+  const goalW = 7.32;
+  const goalH = 2.44;
+  const goalD = 2.0;
+
+  function buildGoalAtZ(prefix, zLine, depthSign) {
+    const lp = BABYLON.MeshBuilder.CreateCylinder(`${prefix}_LeftPost`, { diameter: 0.13, height: goalH, tessellation: 18 }, scene);
+    lp.position.set(-goalW / 2, goalH / 2, zLine);
+    lp.material = postMat;
+    lp.parent = pitchRoot;
+    shadowGen.addShadowCaster(lp);
+
+    const rp = lp.clone(`${prefix}_RightPost`);
+    rp.position.set(goalW / 2, goalH / 2, zLine);
+    rp.parent = pitchRoot;
+    shadowGen.addShadowCaster(rp);
+
+    const cb = BABYLON.MeshBuilder.CreateCylinder(`${prefix}_Crossbar`, { diameter: 0.13, height: goalW + 0.14, tessellation: 18 }, scene);
+    cb.rotation.z = Math.PI / 2;
+    cb.position.set(0, goalH, zLine);
+    cb.material = postMat;
+    cb.parent = pitchRoot;
+    shadowGen.addShadowCaster(cb);
+
+    const nb = BABYLON.MeshBuilder.CreateBox(`${prefix}_GoalNet`, { width: goalW, height: goalH, depth: goalD, updatable: false }, scene);
+    nb.position.set(0, goalH / 2, zLine + depthSign * (goalD / 2));
+    nb.material = netMat;
+    nb.parent = pitchRoot;
+  }
+
+  buildGoalAtZ('Atk', -34, -1);
+  buildGoalAtZ('Def', 50, 1);
 
   return { pitchRoot, shadowGen };
 }

@@ -1,3 +1,5 @@
+import { MULTI_POSITION_SCENARIOS } from './scenariosMultiPos.js';
+
 function clamp(v, lo, hi) {
   return Math.max(lo, Math.min(hi, v));
 }
@@ -282,7 +284,7 @@ export function evaluateScenarioAtTime(scenario, tSec) {
  *   - Screen BOTTOM = +X (+28m near touchline)
  *   - Screen TOP    = -X (-28m far touchline)
  */
-export const SCENARIOS = [
+const PEDRI_SCENARIOS = [
   // ============================================================================
   // SCENARIO 01: s1_zhibo8_half_turn.mp4 (4.000s — Barça vs Mallorca)
   // ============================================================================
@@ -1489,4 +1491,14 @@ export const SCENARIOS = [
     pedriRibbon: [[5.4, 0.06, -13.6], [4.75, 0.06, -15.15], [1.85, 0.06, -15.75], [3.88, 0.06, -17.25], [-3.05, 0.12, -34.35]],
     overshootRibbon: [[3.6, 0.05, -18.8], [4.5, 0.05, -16.2], [6.8, 0.05, -15.4]]
   }
+];
+
+export const SCENARIOS = [
+  ...PEDRI_SCENARIOS.map((sc) => ({
+    positionGroup: 'MF',
+    positionLabel: '中场 CM',
+    starName: '#8 佩德里 Pedri',
+    ...sc
+  })),
+  ...MULTI_POSITION_SCENARIOS
 ];

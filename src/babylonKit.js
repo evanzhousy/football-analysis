@@ -123,6 +123,196 @@ export const CLUB_KIT_PRESETS = {
     socks: '#ec4899',
     sockBand: '#111827',
     numColor: '#ffffff'
+  },
+  'bayern-red': {
+    pattern: 'solid',
+    primary: '#dc2626',
+    secondary: '#b91c1c',
+    accent: '#f8fafc',
+    shorts: '#dc2626',
+    socks: '#dc2626',
+    sockBand: '#f8fafc',
+    numColor: '#f8fafc'
+  },
+  'bayern-navy': {
+    pattern: 'center-band',
+    primary: '#171f32',
+    secondary: '#be123c',
+    accent: '#f43f5e',
+    shorts: '#171f32',
+    socks: '#171f32',
+    sockBand: '#be123c',
+    numColor: '#f8fafc'
+  },
+  'belgium-white': {
+    pattern: 'solid',
+    primary: '#f8fafc',
+    secondary: '#e2e8f0',
+    accent: '#dc2626',
+    shorts: '#f8fafc',
+    socks: '#f8fafc',
+    sockBand: '#dc2626',
+    numColor: '#b91c1c'
+  },
+  'wales-red': {
+    pattern: 'solid',
+    primary: '#dc2626',
+    secondary: '#b91c1c',
+    accent: '#facc15',
+    shorts: '#dc2626',
+    socks: '#dc2626',
+    sockBand: '#facc15',
+    numColor: '#f8fafc'
+  },
+  'bilbao-striped': {
+    pattern: 'stripes',
+    primary: '#d92323',
+    secondary: '#f8fafc',
+    accent: '#111827',
+    shorts: '#111827',
+    socks: '#111827',
+    sockBand: '#d92323',
+    numColor: '#111827'
+  },
+  'brazil-yellow': {
+    pattern: 'solid',
+    primary: '#fde047',
+    secondary: '#facc15',
+    accent: '#16a34a',
+    shorts: '#1d4ed8',
+    socks: '#f8fafc',
+    sockBand: '#16a34a',
+    numColor: '#15803d'
+  },
+  'japan-blue': {
+    pattern: 'solid',
+    primary: '#172554',
+    secondary: '#1e3a8a',
+    accent: '#38bdf8',
+    shorts: '#172554',
+    socks: '#172554',
+    sockBand: '#38bdf8',
+    numColor: '#f8fafc'
+  },
+  'trabzon-striped': {
+    pattern: 'center-band',
+    primary: '#1e1b2e',
+    secondary: '#38bdf8',
+    accent: '#7f1d1d',
+    shorts: '#111827',
+    socks: '#111827',
+    sockBand: '#38bdf8',
+    numColor: '#f8fafc'
+  },
+  'press-orange': {
+    pattern: 'solid',
+    primary: '#f97316',
+    secondary: '#ea580c',
+    accent: '#ffffff',
+    shorts: '#f97316',
+    socks: '#f97316',
+    sockBand: '#ffffff',
+    numColor: '#ffffff'
+  },
+  'celtic-hoops': {
+    pattern: 'hoops',
+    primary: '#f8fafc',
+    secondary: '#16a34a',
+    accent: '#15803d',
+    shorts: '#f8fafc',
+    socks: '#f8fafc',
+    sockBand: '#16a34a',
+    numColor: '#111827'
+  },
+  'scottish-blue': {
+    pattern: 'solid',
+    primary: '#1d4ed8',
+    secondary: '#1e40af',
+    accent: '#f8fafc',
+    shorts: '#f8fafc',
+    socks: '#1d4ed8',
+    sockBand: '#f8fafc',
+    numColor: '#f8fafc'
+  },
+  'arsenal-red': {
+    pattern: 'arsenal',
+    primary: '#dc2626',
+    secondary: '#f8fafc',
+    accent: '#f8fafc',
+    shorts: '#f8fafc',
+    socks: '#dc2626',
+    sockBand: '#f8fafc',
+    numColor: '#f8fafc'
+  },
+  'spurs-navy': {
+    pattern: 'solid',
+    primary: '#172033',
+    secondary: '#0f172a',
+    accent: '#38bdf8',
+    shorts: '#172033',
+    socks: '#172033',
+    sockBand: '#38bdf8',
+    numColor: '#f8fafc'
+  },
+  'hertha-striped': {
+    pattern: 'stripes',
+    primary: '#1d4ed8',
+    secondary: '#f8fafc',
+    accent: '#1e3a8a',
+    shorts: '#1d4ed8',
+    socks: '#1d4ed8',
+    sockBand: '#f8fafc',
+    numColor: '#111827'
+  },
+  'morocco-red': {
+    pattern: 'solid',
+    primary: '#c81e2b',
+    secondary: '#991b1b',
+    accent: '#15803d',
+    shorts: '#15803d',
+    socks: '#c81e2b',
+    sockBand: '#15803d',
+    numColor: '#f8fafc'
+  },
+  'ivory-white': {
+    pattern: 'solid',
+    primary: '#f8fafc',
+    secondary: '#e2e8f0',
+    accent: '#ea580c',
+    shorts: '#f8fafc',
+    socks: '#f8fafc',
+    sockBand: '#16a34a',
+    numColor: '#15803d'
+  },
+  'gk-yellow': {
+    pattern: 'solid',
+    primary: '#facc15',
+    secondary: '#eab308',
+    accent: '#111827',
+    shorts: '#facc15',
+    socks: '#facc15',
+    sockBand: '#111827',
+    numColor: '#111827'
+  },
+  'gk-blue': {
+    pattern: 'solid',
+    primary: '#2563eb',
+    secondary: '#1d4ed8',
+    accent: '#f8fafc',
+    shorts: '#2563eb',
+    socks: '#2563eb',
+    sockBand: '#f8fafc',
+    numColor: '#ffffff'
+  },
+  'gk-green': {
+    pattern: 'solid',
+    primary: '#16a34a',
+    secondary: '#15803d',
+    accent: '#f8fafc',
+    shorts: '#111827',
+    socks: '#16a34a',
+    sockBand: '#f8fafc',
+    numColor: '#ffffff'
   }
 };
 
@@ -163,11 +353,15 @@ function hexToRgb(hex) {
   return [(n >> 16) & 255, (n >> 8) & 255, n & 255];
 }
 
-function resolveKitPreset(actorDef) {
-  if (actorDef.kit && CLUB_KIT_PRESETS[actorDef.kit]) {
-    return CLUB_KIT_PRESETS[actorDef.kit];
+export function resolveKitPreset(actorDefOrKey) {
+  if (!actorDefOrKey) return CLUB_KIT_PRESETS['barca-home'];
+  if (typeof actorDefOrKey === 'string') {
+    return CLUB_KIT_PRESETS[actorDefOrKey] || CLUB_KIT_PRESETS['barca-home'];
   }
-  if (actorDef.role === 'pedri' || actorDef.role === 'teammate') {
+  if (actorDefOrKey.kit && CLUB_KIT_PRESETS[actorDefOrKey.kit]) {
+    return CLUB_KIT_PRESETS[actorDefOrKey.kit];
+  }
+  if (actorDefOrKey.role === 'pedri' || actorDefOrKey.role === 'hero' || actorDefOrKey.role === 'teammate') {
     return CLUB_KIT_PRESETS['barca-home'];
   }
   return CLUB_KIT_PRESETS['madrid-white'];
@@ -178,8 +372,8 @@ const bodyTexCache = new Map();
 
 /**
  * Generates a crisp 1024x1024 DynamicTexture for `Ch42_Shirt` (`TEXCOORD_1`):
- *   - Left half [0..512]: Front jersey panel (stripes/sash/center-band + club crest + sponsor mark)
- *   - Right half [512..1024]: Back jersey panel (stripes + outlined Surname & Squad Number)
+ *   - Left half [0..512]: Front jersey panel (stripes/hoops/arsenal/sash/center-band + club crest + sponsor mark)
+ *   - Right half [512..1024]: Back jersey panel (pattern + outlined Surname & Squad Number)
  *   - Top center [470..554, 0..76]: Collar & short-sleeve cuff trim swatch (`preset.accent`)
  */
 function getJerseyAlbedoTexture(scene, preset, actorDef) {
@@ -199,26 +393,33 @@ function getJerseyAlbedoTexture(scene, preset, actorDef) {
   ctx.fillRect(0, 0, 1024, 1024);
 
   function drawPanelPattern(offsetX) {
-    // Panel torso width spans roughly [offsetX + 90 .. offsetX + 422]
     if (preset.pattern === 'stripes') {
       const stripeW = 46;
       for (let x = offsetX; x < offsetX + 512; x += stripeW * 2) {
         ctx.fillStyle = preset.secondary;
         ctx.fillRect(x + stripeW * 0.5, 64, stripeW, 960);
       }
-      // Solid sleeves on outer edges for authentic modern Barça/Atleti silhouette
       ctx.fillStyle = preset.primary;
       ctx.fillRect(offsetX, 64, 104, 420);
       ctx.fillRect(offsetX + 408, 64, 104, 420);
+    } else if (preset.pattern === 'hoops') {
+      const hoopH = 58;
+      for (let y = 76; y < 1024; y += hoopH * 2) {
+        ctx.fillStyle = preset.secondary;
+        ctx.fillRect(offsetX, y, 512, hoopH);
+      }
+    } else if (preset.pattern === 'arsenal') {
+      // Iconic Arsenal red body + crisp white short sleeves
+      ctx.fillStyle = preset.secondary;
+      ctx.fillRect(offsetX, 64, 122, 430);
+      ctx.fillRect(offsetX + 390, 64, 122, 430);
     } else if (preset.pattern === 'center-band') {
-      // PSG Hechter central vertical red band + white pin borders
       const cx = offsetX + 256;
       ctx.fillStyle = preset.accent;
       ctx.fillRect(cx - 42, 64, 84, 960);
       ctx.fillStyle = preset.secondary;
       ctx.fillRect(cx - 32, 64, 64, 960);
     } else if (preset.pattern === 'sash' && offsetX === 0) {
-      // Rayo Vallecano diagonal red sash on front
       ctx.save();
       ctx.beginPath();
       ctx.rect(0, 64, 512, 960);
@@ -482,9 +683,10 @@ export function applyBabylonFootballerKit(scene, meshes, actorDef, shadowGen) {
       }
       mesh.material = shortsMat;
     } else if (nm.includes('Ch42_Sneakers')) {
+      const isHero = isPedri || actorDef.role === 'hero';
       const bootHex =
         actorDef.bootColor ||
-        (isPedri ? '#f8fafc' : actorDef.kit === 'gk-pink' ? '#facc15' : actorDef.role === 'teammate' ? '#38bdf8' : '#1e293b');
+        (isHero ? '#f8fafc' : actorDef.kit === 'gk-pink' ? '#facc15' : actorDef.role === 'teammate' ? '#38bdf8' : '#1e293b');
       let cleatsMat = cleatsMatCache.get(bootHex);
       if (!cleatsMat) {
         cleatsMat = new BABYLON.PBRMaterial(`CleatsPBR_${bootHex}`, scene);

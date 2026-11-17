@@ -5,8 +5,10 @@ import {
   attachBabylonAthleteRig,
   createBabylonPlayer,
   updateBabylonPlayerPose,
-  createBabylonTrajectoryRibbon
+  createBabylonTrajectoryRibbon,
+  isHeroRole
 } from './babylonPlayer.js';
+import { resolveKitPreset } from './babylonKit.js';
 import { MOCAP_CATALOG, getMocapMeta, getMocapDuration } from './mixamoSoccerLibrary.js';
 import { SCENARIOS, evaluateScenarioAtTime } from './scenarios.js';
 import { SCENARIO_VIDEOS, MASTER_ZHIBO8_REEL } from './videos.js';
@@ -51,7 +53,7 @@ const mainCamera = new BABYLON.UniversalCamera(
   scene
 );
 mainCamera.minZ = 0.08;
-mainCamera.maxZ = 220;
+mainCamera.maxZ = 240;
 mainCamera.fov = (35 * Math.PI) / 180;
 
 const freeCamera = new BABYLON.ArcRotateCamera(
@@ -63,10 +65,10 @@ const freeCamera = new BABYLON.ArcRotateCamera(
   scene
 );
 freeCamera.minZ = 0.08;
-freeCamera.maxZ = 220;
+freeCamera.maxZ = 240;
 freeCamera.fov = (35 * Math.PI) / 180;
 freeCamera.lowerRadiusLimit = 0.75;
-freeCamera.upperRadiusLimit = 62;
+freeCamera.upperRadiusLimit = 72;
 freeCamera.upperBetaLimit = Math.PI * 0.495;
 freeCamera.wheelPrecision = 35;
 freeCamera.panningSensibility = 450;
@@ -99,6 +101,7 @@ const mocapShowcaseGroup = new BABYLON.TransformNode('MocapShowcaseGroup', scene
 mocapShowcaseGroup.setEnabled(false);
 
 let activeScenarioIndex = 0;
+let activePositionFilter = 'ALL'; // 'ALL' | 'MF' | 'FW' | 'DF'
 let activeActors = [];
 let activeRibbons = [];
 let snapCameraNextFrame = true;
@@ -127,6 +130,9 @@ const overlaysConfig = {
 
 // UI References
 const scenarioListEl = document.getElementById('scenario-list');
+const scenarioCountBadgeEl = document.getElementById('scenario-count-badge');
+const brandJerseyCrestEl = document.getElementById('brand-jersey-crest');
+const legendHeroLabelEl = document.getElementById('legend-hero-label');
 const phaseBadgeEl = document.getElementById('live-phase-badge');
 const matchSourceEl = document.getElementById('live-match-source');
 const phaseDescEl = document.getElementById('live-phase-desc');
@@ -189,7 +195,7 @@ function buildMocapLibrarySelector() {
 
   const optTactical = document.createElement('option');
   optTactical.value = 'tactical';
-  optTactical.textContent = '⚽ 实战视频 1:1 帧同步模式 (8大直播吧切片)';
+  optTactical.textContent = '⚽ 实战视频 1:1 帧同步模式 (18大中场/前锋/后卫切片)';
   mocapModeSelectEl.appendChild(optTactical);
 
   const byCat = new Map();
@@ -397,6 +403,12 @@ document.querySelectorAll('.vsrc-btn').forEach((btn) => {
   btn.addEventListener('click', () => {
     activeVideoSource = btn.dataset.vsrc;
     document.querySelectorAll('.vsrc-btn').forEach((b) => b.classList.toggle('active', b === btn));
+    if (activeVideoSource === 'reel' && activeScenarioIndex >= 8) {
+      if (activePositionFilter !== 'ALL' && activePositionFilter !== 'MF') {
+        setPositionFilter('ALL', false);
+      }
+      loadScenario(0, { preserveReelPlayback: true });
+    }
     updateRealVideoDeck();
   });
 });
@@ -427,7 +439,7 @@ btnLayoutSplit.addEventListener('click', () => {
   applySplitLayout(!splitLayout);
 });
 
-// 4. Switch Between 8-Scenario Video 1:1 Mode vs 32-Clip Mixamo《Soccer Pack》Showcase
+// 4. Switch Between 18-Scenario Video 1:1 Mode vs 32-Clip Mixamo《Soccer Pack》Showcase
 function clearShowcaseObjects() {
   if (showcasePedriActor) {
     showcasePedriActor.dispose();
@@ -455,47 +467,58 @@ function setMocapMode(mode) {
   scenarioGroup.setEnabled(false);
   mocapShowcaseGroup.setEnabled(true);
 
-  if (!showcasePedriActor) {
-    showcasePedriActor = createBabylonPlayer(
-      scene,
-      {
-        id: 'pedri_showcase',
-        role: 'pedri',
-        kit: 'barca-home',
-        number: '8',
-        shirtName: 'PEDRI',
-        hairColor: '#2b1d14',
-        label: '#8 佩德里'
-      },
-      shadowGen,
-      mocapShowcaseGroup
-    );
-  }
+  const curSc = SCENARIOS[activeScenarioIndex];
+  const heroDef = curSc.actors.find((a) => isHeroRole(a.role)) || curSc.actors[0];
+  clearShowcaseObjects();
+  showcasePedriActor = createBabylonPlayer(
+    scene,
+    {
+      ...heroDef,
+      id: `${heroDef.id}_showcase`,
+      role: 'hero'
+    },
+    shadowGen,
+    mocapShowcaseGroup
+  );
 
   matchSourceEl.textContent = `Adobe Mixamo《Soccer Pack》官方库 · ${meta.category} (${meta.file})`;
   inspEyebrowEl.textContent = `MIXAMO SOCCER PACK · ${meta.category}`;
   inspTitleEl.textContent = meta.label;
-  inspMoveEl.textContent = `动作资产 ID: ${meta.id} · 65骨骼一体成型零破洞姿态曲线`;
-  inspPressureEl.textContent = '提示：可切换「肩后 / 足踝特写 / 自由3D」或按 [X] 开启 65 骨骼透视检阅模型与动作细节';
+  inspMoveEl.textContent = `动作资产 ID: ${meta.id} · 当前检阅球星: ${curSc.starName}`;
+  inspPressureEl.textContent = '提示：可切换「主角肩后 / 足踝特写 / 自由3D」或按 [X] 开启 65 骨骼透视检阅模型与动作细节';
 }
 
 mocapModeSelectEl.addEventListener('change', (e) => {
   setMocapMode(e.target.value);
 });
 
-// 5. Render Sidebar Scenario List
+// 5. Render Sidebar Scenario List & Position Filter Tabs (ALL / MF / FW / DF)
 function buildScenarioSidebar() {
   scenarioListEl.innerHTML = '';
+  let visibleCount = 0;
+
   SCENARIOS.forEach((sc, idx) => {
+    const posGroup = sc.positionGroup || 'MF';
+    if (activePositionFilter !== 'ALL' && posGroup !== activePositionFilter) {
+      return;
+    }
+    visibleCount += 1;
+
+    const posClass = posGroup === 'FW' ? 'pos-fw' : posGroup === 'DF' ? 'pos-df' : 'pos-mf';
     const btn = document.createElement('button');
     btn.type = 'button';
     btn.id = `scenario-btn-${sc.index}`;
+    btn.dataset.scenarioIdx = String(idx);
     btn.className = `scenario-item${idx === activeScenarioIndex ? ' active' : ''}`;
     btn.innerHTML = `
       <div class="scenario-item-top">
-        <span class="scenario-index">SCENARIO ${sc.index}</span>
+        <div class="scenario-top-left">
+          <span class="scenario-index">#${sc.index}</span>
+          <span class="pos-badge ${posClass}">${sc.positionLabel || posGroup}</span>
+        </div>
         <span class="scenario-zone-tag">${sc.zoneTag}</span>
       </div>
+      <div class="scenario-star-tag">${sc.starName || ''}</div>
       <div class="scenario-item-title">${sc.title}</div>
       <div class="scenario-item-move">${sc.moveName}</div>
     `;
@@ -509,17 +532,61 @@ function buildScenarioSidebar() {
       }
       if (activeVideoSource === 'reel') {
         const seg = (MASTER_ZHIBO8_REEL.segments || []).find((s) => s.scenarioIndex === idx);
-        loadScenario(idx, { preserveReelPlayback: true });
-        if (seg && zhibo8ClipEl.readyState >= 1) {
-          zhibo8ClipEl.currentTime = seg.start;
+        if (seg) {
+          loadScenario(idx, { preserveReelPlayback: true });
+          if (zhibo8ClipEl.readyState >= 1) {
+            zhibo8ClipEl.currentTime = seg.start;
+          }
+          return;
         }
-        return;
+        // Scenarios 09-18 have individual Zhibo8 clips -> switch cleanly from Pedri 8-clip reel to 'zhibo8'
+        activeVideoSource = 'zhibo8';
+        document.querySelectorAll('.vsrc-btn').forEach((b) => {
+          b.classList.toggle('active', b.dataset.vsrc === 'zhibo8');
+        });
       }
       loadScenario(idx);
     });
     scenarioListEl.appendChild(btn);
   });
+
+  if (scenarioCountBadgeEl) {
+    scenarioCountBadgeEl.textContent =
+      activePositionFilter === 'ALL'
+        ? `${visibleCount} SCENARIOS`
+        : `${visibleCount} ${activePositionFilter} SCENARIOS`;
+  }
 }
+
+function setPositionFilter(pos, autoSelectFirst = true) {
+  activePositionFilter = pos;
+  document.querySelectorAll('.pos-tab-btn').forEach((b) => {
+    b.classList.toggle('active', b.dataset.pos === pos);
+  });
+  buildScenarioSidebar();
+
+  if (autoSelectFirst && pos !== 'ALL') {
+    const curSc = SCENARIOS[activeScenarioIndex];
+    if ((curSc.positionGroup || 'MF') !== pos) {
+      const firstIdx = SCENARIOS.findIndex((s) => (s.positionGroup || 'MF') === pos);
+      if (firstIdx >= 0) {
+        if (activeVideoSource === 'reel' && firstIdx >= 8) {
+          activeVideoSource = 'zhibo8';
+          document.querySelectorAll('.vsrc-btn').forEach((b) => {
+            b.classList.toggle('active', b.dataset.vsrc === 'zhibo8');
+          });
+        }
+        loadScenario(firstIdx);
+      }
+    }
+  }
+}
+
+document.querySelectorAll('.pos-tab-btn').forEach((btn) => {
+  btn.addEventListener('click', () => {
+    setPositionFilter(btn.dataset.pos, true);
+  });
+});
 
 // 6. Load Selected Scenario into Babylon.js Scene + Sync Video Deck
 function clearScenarioObjects() {
@@ -535,6 +602,21 @@ function clearScenarioObjects() {
   activeRibbons = [];
 }
 
+function updateHeroHeaderAndLegend(sc) {
+  const heroDef = sc.actors.find((a) => isHeroRole(a.role)) || sc.actors[0];
+  if (!heroDef) return;
+  const preset = resolveKitPreset(heroDef.kit);
+
+  if (brandJerseyCrestEl) {
+    brandJerseyCrestEl.textContent = String(heroDef.number || '8');
+    brandJerseyCrestEl.style.background = `linear-gradient(135deg, ${preset.primary} 0%, ${preset.primary} 48%, ${preset.secondary} 52%, ${preset.secondary} 100%)`;
+    brandJerseyCrestEl.style.color = preset.numColor || '#facc15';
+  }
+  if (legendHeroLabelEl) {
+    legendHeroLabelEl.textContent = `${sc.starName || heroDef.label} (${sc.positionLabel || '主角'} · 一体成型零破洞)`;
+  }
+}
+
 function loadScenario(index, opts = {}) {
   activeScenarioIndex = index;
   if (!opts.preserveSubClip) {
@@ -544,9 +626,11 @@ function loadScenario(index, opts = {}) {
   snapCameraNextFrame = true;
   const sc = SCENARIOS[index];
 
-  document.querySelectorAll('.scenario-item').forEach((el, i) => {
-    el.classList.toggle('active', i === index);
+  document.querySelectorAll('.scenario-item').forEach((el) => {
+    el.classList.toggle('active', Number(el.dataset.scenarioIdx) === index);
   });
+
+  updateHeroHeaderAndLegend(sc);
 
   clearScenarioObjects();
   activeActors = sc.actors.map((actorDef) => {
@@ -560,7 +644,7 @@ function loadScenario(index, opts = {}) {
   const defOvershootTube = createBabylonTrajectoryRibbon(scene, sc.overshootRibbon, '#f87171', 0.044, 0.50, scenarioGroup);
   if (defOvershootTube) activeRibbons.push(defOvershootTube);
 
-  inspEyebrowEl.textContent = `SCENARIO ${sc.index} · ${sc.zoneTag}`;
+  inspEyebrowEl.textContent = `SCENARIO ${sc.index} · [${sc.positionLabel || sc.positionGroup}] · ${sc.zoneTag}`;
   inspTitleEl.textContent = sc.title;
   inspMoveEl.textContent = sc.moveName;
   inspPressureEl.textContent = `逼抢态势：${sc.pressureType}`;
@@ -915,7 +999,7 @@ function evaluateFrame(dt) {
 
   activeActors.forEach((actorObj, idx) => {
     const st = evalState.actorStates[idx];
-    if (actorObj.def.role === 'pedri') {
+    if (isHeroRole(actorObj.def.role)) {
       pedriState = st;
       pedriModel = actorObj.model;
     }
@@ -1010,8 +1094,10 @@ engine.runRenderLoop(() => {
 window.__STUDIO_DEBUG__ = {
   waitReady: () => rigReadyPromise,
   isReady: () => rigLoaded,
+  getScenarioCount: () => SCENARIOS.length,
   pauseRenderLoop: () => engine.stopRenderLoop(),
   setSplitLayout: (split) => applySplitLayout(split),
+  setPositionFilter: (pos, autoSelectFirst = false) => setPositionFilter(pos, autoSelectFirst),
   setOverlays: (cfg) => {
     Object.assign(overlaysConfig, cfg);
     setSkeletonXray(overlaysConfig.showSkeleton);
@@ -1059,13 +1145,15 @@ window.__STUDIO_DEBUG__ = {
     await scene.whenReadyAsync(true);
     scene.render();
     scene.render();
-    const pedriObj = activeActors.find((a) => a.def.role === 'pedri');
+    const heroObj = activeActors.find((a) => isHeroRole(a.def.role));
     return {
       scenario: SCENARIOS[activeScenarioIndex].id,
+      positionGroup: SCENARIOS[activeScenarioIndex].positionGroup,
+      starName: SCENARIOS[activeScenarioIndex].starName,
       currentSec,
       videoTime: zhibo8ClipEl.currentTime,
       actorCount: activeActors.length,
-      pedriTelemetry: pedriObj ? pedriObj.model.telemetry : null
+      pedriTelemetry: heroObj ? heroObj.model.telemetry : null
     };
   },
   async inspectMocapClip(clipId, sec, customCam = null, showXray = false, showLabels = false) {

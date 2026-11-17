@@ -341,5 +341,319 @@ export const SCENARIO_VIDEOS = {
     },
     watchCue:
       '直播吧回放对照重点：从直播吧原片 00:29.6 处精准剪出——禁区弧顶连续两次高扬右腿假射，先后晃飞拉基蒂奇与迭戈·卡洛斯倒地滑铲后贴地斩破门！'
+  },
+
+  'saul-ucl-solo-slalom': {
+    zhibo8Clips: [
+      {
+        label: '直播吧剪辑①：欧冠半决赛 #17萨乌尔中圈连过拜仁4人破门 (12.2s)',
+        src: './assets/videos/s09_mf_saul_bayern.mp4',
+        filename: 's09_mf_saul_vs_bayern_ucl.mp4',
+        title: '【直播吧欧冠经典】马竞 1-0 拜仁：#17 萨乌尔中圈启动连过蒂亚戈/贝尔纳特/阿隆索/阿拉巴弧线击中立柱入网！',
+        pageUrl: 'https://www.zhibo8.com/zuqiu/2026/1113-pt1252247-svideo.htm'
+      }
+    ],
+    bili: {
+      bvid: 'BV1s4411H7z5',
+      page: 1,
+      title: '【欧冠经典】萨乌尔对阵拜仁慕尼黑惊世一条龙破门',
+      url: 'https://www.bilibili.com/video/BV1s4411H7z5/'
+    },
+    yt1: {
+      id: 'L4qM6S6b43k',
+      start: 4,
+      title: 'Saúl Ñíguez Solo Goal vs Bayern Munich | UCL Semi-Final',
+      url: 'https://www.youtube.com/watch?v=L4qM6S6b43k'
+    },
+    zhibo8: {
+      label: '直播吧原片：萨乌尔欧冠连过拜仁四人破门',
+      url: 'https://www.zhibo8.com/zuqiu/2026/1113-pt1252247-svideo.htm'
+    },
+    watchCue:
+      '直播吧回放对照重点：中场 B2B 纵向破逼抢典范——观察 #17 萨乌尔在 2.0s–6.5s 用高频左脚外拨连续穿过拜仁三名中场围剿，并在 9.1s 急停内切闪开阿拉巴兜射远角立柱！'
+  },
+
+  'kdb-touchline-press-switch': {
+    zhibo8Clips: [
+      {
+        label: '直播吧剪辑①：#7德布劳内边线诱敌晃倒逼抢+38m手术刀长传 (8.8s)',
+        src: './assets/videos/s10_mf_kdb_pass.mp4',
+        filename: 's10_mf_debruyne_touchline_pass.mp4',
+        title: '【直播吧实况精剪】比利时vs威尔士：#7 德布劳内近端边线降速诱敌晃倒红衣逼抢者，顺势轰出 38 米外旋穿透直塞！',
+        pageUrl: 'https://www.zhibo8.com/zuqiu/2026/1114-62cba09-svideo.htm'
+      }
+    ],
+    bili: {
+      bvid: 'BV1GJ411x7h7',
+      page: 1,
+      title: '【德布劳内】大师级上帝视角摆脱与贴地弧线直塞合集',
+      url: 'https://www.bilibili.com/all?keyword=%E5%BE%B7%E5%B8%83%E5%8A%B3%E5%86%85+%E7%9B%B4%E5%A1%9E'
+    },
+    yt1: {
+      id: 'Z6gQ7sP8yK0',
+      start: 0,
+      title: 'Kevin De Bruyne Passing Under Heavy Touchline Press',
+      url: 'https://www.youtube.com/results?search_query=De+Bruyne+touchline+pass+Wales'
+    },
+    zhibo8: {
+      label: '直播吧原片：德布劳内边线摆脱送手术刀长传',
+      url: 'https://www.zhibo8.com/zuqiu/2026/1114-62cba09-svideo.htm'
+    },
+    watchCue:
+      '直播吧回放对照重点：观察画面下方边线处 #7 德布劳内如何利用边线诱使两名威尔士红衣球员扑抢倒地（4.1s），随即在极窄空间抽出一记绕过整条防线的贴地弧线长传！'
+  },
+
+  'yamal-bilbao-box-slalom': {
+    zhibo8Clips: [
+      {
+        label: '直播吧剪辑①：#19亚马尔肋部1v4蝴蝶穿花突入小禁区 (8.6s)',
+        src: './assets/videos/s11_fw_yamal_slalom.mp4',
+        filename: 's11_fw_yamal_1v4_bilbao.mp4',
+        title: '【直播吧西甲原片】巴萨vs毕尔巴鄂竞技：17岁右边锋 #19 亚马尔罚球弧顶高频双脚变向连过4名红白后卫杀入小禁区！',
+        pageUrl: 'https://www.zhibo8.com/zuqiu/2026/0913-3841c7a-svideo.htm'
+      }
+    ],
+    bili: {
+      bvid: 'BV1yDM2zVEhe',
+      page: 1,
+      title: '【拉明·亚马尔】狭小空间1v4过人突破高光拆解',
+      url: 'https://www.bilibili.com/all?keyword=%E4%BA%9A%E9%A9%AC%E5%B0%94+%E8%BF%87%E4%BA%BA+%E6%AF%95%E5%B0%94%E5%B7%B4%E9%84%82'
+    },
+    yt1: {
+      id: 'k9X0wM5v8xQ',
+      start: 0,
+      title: 'Lamine Yamal Insane Solo Dribble vs Athletic Club',
+      url: 'https://www.youtube.com/results?search_query=Lamine+Yamal+dribble+vs+Athletic+Bilbao'
+    },
+    zhibo8: {
+      label: '直播吧原片：亚马尔禁区弧顶1v4连过毕巴防线',
+      url: 'https://www.zhibo8.com/zuqiu/2026/0913-3841c7a-svideo.htm'
+    },
+    watchCue:
+      '直播吧回放对照重点：技术型边锋破密集铁桶阵教科书——4.3s–6.5s 罚球弧顶三名红白间条衫后卫瞬间关门，注意 #19 亚马尔不减速油炸丸子从不足1米的夹缝钻出！'
+  },
+
+  'vinicius-double-press-chip': {
+    zhibo8Clips: [
+      {
+        label: '直播吧剪辑①：#7维尼修斯扛住双卫关门生吃+挑射破门 (全景1:1)',
+        src: './assets/videos/s12_fw_vinicius_burst.mp4',
+        filename: 's12_fw_vinicius_split_chip.mp4',
+        title: '【直播吧国际赛原片】巴西vs日本：#7 维尼修斯反越位接直塞，硬扛 #14 与 #4 双蓝衣中卫夹击爆趟挑射破门！',
+        pageUrl: 'https://www.zhibo8.com/zuqiu/2026/1114-bb58259-svideo.htm'
+      },
+      {
+        label: '直播吧剪辑②：地面正对特写慢镜 (双卫三明治夹击生吃)',
+        src: './assets/videos/s12_angle2_vinicius_burst.mp4',
+        filename: 's12_angle2_vinicius_burst.mp4',
+        title: '【直播吧第二视角特写】正面低机位看清 #7 维尼修斯如何在两名日本后卫左右挤靠下用第一步爆趟抢出身位并挑射越过红衣门将！',
+        pageUrl: 'https://www.zhibo8.com/zuqiu/2026/1114-bb58259-svideo.htm'
+      }
+    ],
+    bili: {
+      bvid: 'BV1GJ411x7h7',
+      page: 1,
+      title: '【维尼修斯】爆发步频生吃双中卫与单刀挑射拆解',
+      url: 'https://www.bilibili.com/all?keyword=%E7%BB%B4%E5%B0%BC%E4%BF%AE%E6%96%AF+%E6%97%A5%E6%9C%AC+%E8%BF%9B%E7%90%83'
+    },
+    yt1: {
+      id: 'vini_jpn_07',
+      start: 0,
+      title: 'Vinícius Jr Goal vs Japan — Splitting Two Defenders at Full Speed',
+      url: 'https://www.youtube.com/results?search_query=Vinicius+Jr+goal+vs+Japan'
+    },
+    zhibo8: {
+      label: '直播吧原片：维尼修斯双人包夹强行超车挑射',
+      url: 'https://www.zhibo8.com/zuqiu/2026/1114-bb58259-svideo.htm'
+    },
+    watchCue:
+      '直播吧回放对照重点：前锋纵向抗挤压范本——1.6s–3.4s 两名日本深蓝后卫从左右同时关门挤压，维尼修斯靠第一脚触球向正前方爆趟半步抢占身前线，随后轻挑越过滑扑门将！'
+  },
+
+  'bale-touchline-curved-overtake': {
+    zhibo8Clips: [
+      {
+        label: '直播吧剪辑①：国王杯决赛 #11贝尔 36.9km/h 界外弯道超车绝杀 (11.2s)',
+        src: './assets/videos/s13_fw_bale_overtake.mp4',
+        filename: 's13_fw_bale_overtake_bartra.mp4',
+        title: '【直播吧测速典藏版】皇马 2-1 巴萨：#11 贝尔遭 #15 巴尔特拉撞出边线外，飙出 36.9km/h 界外大弧线弯道超车穿裆绝杀！',
+        pageUrl: 'https://www.zhibo8.com/zuqiu/2026/1113-2f7320d-svideo.htm'
+      }
+    ],
+    bili: {
+      bvid: 'BV1xW411n7uY',
+      page: 1,
+      title: '【传给3秒后的自己】贝尔国王杯决赛外道超车巴尔特拉绝杀巴萨',
+      url: 'https://www.bilibili.com/all?keyword=%E8%B4%9D%E5%B0%94+%E4%BC%A0%E7%BB%993%E7%A7%92%E5%90%8E%E7%9A%84%E8%87%AA%E5%B7%B1'
+    },
+    yt1: {
+      id: 'bale_copa_11',
+      start: 0,
+      title: 'Gareth Bale Iconic Copa del Rey Final Solo Goal vs Barcelona',
+      url: 'https://www.youtube.com/results?search_query=Gareth+Bale+goal+vs+Barcelona+Copa+del+Rey'
+    },
+    zhibo8: {
+      label: '直播吧原片：贝尔 36.9km/h 外道超车巴尔特拉',
+      url: 'https://www.zhibo8.com/zuqiu/2026/1113-2f7320d-svideo.htm'
+    },
+    watchCue:
+      '直播吧回放对照重点：速度型边锋极致抗战术犯规——3.5s 巴尔特拉在中线边线强行横撞将贝尔挤出场外，注意贝尔踩着界外草皮跑出 36.9km/h 弯道反超并切入小禁区穿裆破门！'
+  },
+
+  'bardhi-cruyff-chop-slide': {
+    zhibo8Clips: [
+      {
+        label: '直播吧剪辑①：#10巴尔迪扛人急停扣球晃趴队长破门 (全景1:1)',
+        src: './assets/videos/s14_fw_bardhi_chop.mp4',
+        filename: 's14_fw_bardhi_chop_goal.mp4',
+        title: '【直播吧实况原片】特拉布宗 #10 巴尔迪带球硬扛橙衣队长贴身拉拽，2.95s 急停内扣直接把对手晃趴在草皮上低射破门！',
+        pageUrl: 'https://www.zhibo8.com/zuqiu/2026/1109-4ff1ccd-svideo.htm'
+      },
+      {
+        label: '直播吧剪辑②：超清近景慢镜拆解 (急停内扣晃趴滑出2米)',
+        src: './assets/videos/s14_angle2_bardhi_chop.mp4',
+        filename: 's14_angle2_bardhi_chop_closeup.mp4',
+        title: '【直播吧超清近景慢镜】零距离看清 #10 巴尔迪如何用左肩扛住橙衣队长，随即急停拉球变向令对手重心崩溃水平趴倒在草皮上！',
+        pageUrl: 'https://www.zhibo8.com/zuqiu/2026/1109-4ff1ccd-svideo.htm'
+      }
+    ],
+    bili: {
+      bvid: 'BV1GJ411x7h7',
+      page: 1,
+      title: '【急停扣球教学】高速带球中如何利用对手冲量完成急停晃倒',
+      url: 'https://www.bilibili.com/all?keyword=%E6%80%A5%E5%81%9C%E6%89%A3%E7%90%83+%E6%99%83%E5%80%92%E5%90%8E%E5%8D%AB'
+    },
+    yt1: {
+      id: 'bardhi_chop_10',
+      start: 0,
+      title: 'Enis Bardhi Ankle-Breaking Chop Goal | Trabzonspor',
+      url: 'https://www.youtube.com/results?search_query=Trabzonspor+chop+goal+Alanyaspor'
+    },
+    zhibo8: {
+      label: '直播吧原片：急停扣球直接把橙衣队长晃趴破门',
+      url: 'https://www.zhibo8.com/zuqiu/2026/1109-4ff1ccd-svideo.htm'
+    },
+    watchCue:
+      '直播吧回放对照重点：切勿错过「直播吧剪辑②」超清慢镜——观察 2.95s 急停回扣如何借用贴防后卫自身前冲惯性，让对手整个人水平飞扑趴在草皮上！'
+  },
+
+  'vandijk-cb-coast-to-coast': {
+    zhibo8Clips: [
+      {
+        label: '直播吧剪辑①：中后卫 #5范戴克 本方半场70米一条龙晃飞滑铲破门 (13.8s)',
+        src: './assets/videos/s15_df_vandijk_solo.mp4',
+        filename: 's15_df_vandijk_70m_solo.mp4',
+        title: '【直播吧典藏原片】凯尔特人绿白横条衫 #5 范戴克从本方半场深处带球破逼抢狂奔 70 米，禁区弧顶假射真扣晃飞中卫滑铲破门！',
+        pageUrl: 'https://www.zhibo8.com/zuqiu/2026/0918-pt1200327-svideo.htm'
+      }
+    ],
+    bili: {
+      bvid: 'BV1b4411b7K2',
+      page: 1,
+      title: '【范戴克成名作】凯尔特人时期中后卫 70 米连过数人一条龙破门',
+      url: 'https://www.bilibili.com/all?keyword=%E8%8C%83%E6%88%B4%E5%85%8B+%E5%87%AF%E5%B0%94%E7%89%B9%E4%BA%BA+%E4%B8%80%E6%9D%A1%E9%BE%99'
+    },
+    yt1: {
+      id: 'vvd_celtic_05',
+      start: 0,
+      title: 'Virgil van Dijk Unbelievable Solo Goal for Celtic vs St Johnstone',
+      url: 'https://www.youtube.com/results?search_query=Virgil+van+Dijk+solo+goal+Celtic+St+Johnstone'
+    },
+    zhibo8: {
+      label: '直播吧原片：中卫范戴克后场启动一条龙破门',
+      url: 'https://www.zhibo8.com/zuqiu/2026/0918-pt1200327-svideo.htm'
+    },
+    watchCue:
+      '直播吧回放对照重点：现代出球中卫（Ball-Playing CB）破高位逼抢极致案例——看 #5 范戴克如何从本方半场大步趟过中圈围堵，并在 10.2s 做出媲美前锋的假射左扣晃飞滑铲！'
+  },
+
+  'timber-rb-double-press-turn': {
+    zhibo8Clips: [
+      {
+        label: '直播吧剪辑①：右后卫 #12廷伯 禁区角背身一脚顺球穿双人缝挑射 (6.0s)',
+        src: './assets/videos/s16_df_timber_turn.mp4',
+        filename: 's16_df_timber_turn_goal.mp4',
+        title: '【直播吧原片精剪】阿森纳红身白袖右后卫 #12 廷伯内收至禁区角背身接球，第一脚顺球半转身直接钻过双深蓝防守人夹缝挑射破门！',
+        pageUrl: 'https://www.zhibo8.com/zuqiu/2026/1014-c0ed031-svideo.htm'
+      }
+    ],
+    bili: {
+      bvid: 'BV1GJ411x7h7',
+      page: 1,
+      title: '【廷伯】阿森纳技术型边后卫背身抗逼抢转身集锦',
+      url: 'https://www.bilibili.com/all?keyword=%E9%98%BF%E6%A3%AE%E7%BA%B3+%E5%BB%B7%E4%BC%AF+%E8%BD%AC%E8%BA%AB+%E8%BF%9B%E7%90%83'
+    },
+    yt1: {
+      id: 'timber_turn_12',
+      start: 0,
+      title: 'Jurriën Timber Silky First-Touch Turn Through Two Defenders',
+      url: 'https://www.youtube.com/results?search_query=Jurrien+Timber+turn+Arsenal'
+    },
+    zhibo8: {
+      label: '直播吧原片：右后卫廷伯丝滑半转身钻双人缝破门',
+      url: 'https://www.zhibo8.com/zuqiu/2026/1014-c0ed031-svideo.htm'
+    },
+    watchCue:
+      '直播吧回放对照重点：内收型边后卫（Inverted Fullback）狭小空间摆脱——注意 1.05s 接球瞬间零停顿，右脚内侧顺球 180° 转身直接把两名关门防守人甩在身后！'
+  },
+
+  'davies-lb-press-break-assist': {
+    zhibo8Clips: [
+      {
+        label: '直播吧剪辑①：左后卫 #19戴维斯 后场破逼抢+75米套边卸球横敲助攻 (12.6s)',
+        src: './assets/videos/s17_df_davies_surge.mp4',
+        filename: 's17_df_davies_press_break_assist.mp4',
+        title: '【直播吧德国杯原片】拜仁红衣左后卫 #19 阿方索·戴维斯后场撞墙破逼抢，狂飙 75 米杀入禁区扛人胸部卸球横传助攻空门！',
+        pageUrl: 'https://www.zhibo8.com/zuqiu/2026/1029-b79d04e-svideo.htm'
+      }
+    ],
+    bili: {
+      bvid: 'BV1GJ411x7h7',
+      page: 1,
+      title: '【阿方索·戴维斯】加拿大跑车后场破紧逼一条龙助攻合集',
+      url: 'https://www.bilibili.com/all?keyword=%E9%98%BF%E6%96%B9%E7%B4%A2%E6%88%B4%E7%BB%B4%E6%96%AF+%E5%8A%A9%E6%94%BB'
+    },
+    yt1: {
+      id: 'davies_surge_19',
+      start: 0,
+      title: 'Alphonso Davies Full-Pitch Press Break & Assist | Bayern Munich',
+      url: 'https://www.youtube.com/results?search_query=Alphonso+Davies+assist+Hertha+Berlin'
+    },
+    zhibo8: {
+      label: '直播吧原片：左后卫戴维斯后场破逼抢奔袭助攻',
+      url: 'https://www.zhibo8.com/zuqiu/2026/1029-b79d04e-svideo.htm'
+    },
+    watchCue:
+      '直播吧回放对照重点：边后卫“撞墙破逼抢 + 超速套上”模板——观察 2.6s 后场出球摆脱中线围堵，随即高速反插左肋并在 8.6s 扛住蓝白后卫柔和卸下高空球横传喂饼！'
+  },
+
+  'hakimi-rwb-press-drive-rocket': {
+    zhibo8Clips: [
+      {
+        label: '直播吧剪辑①：右翼卫 #2阿什拉夫 内切连过白衣双腰+28米重炮世界波 (11.0s)',
+        src: './assets/videos/s18_df_hakimi_drive.mp4',
+        filename: 's18_df_hakimi_drive_rocket.mp4',
+        title: '【直播吧实况原片】摩洛哥红衣绿裤右翼卫 #2 阿什拉夫中场右肋接球内切，连续趟过两名白衣后腰拦截轰出 28 米重炮世界波！',
+        pageUrl: 'https://www.zhibo8.com/zuqiu/2026/1114-c4c9fb1-svideo.htm'
+      }
+    ],
+    bili: {
+      bvid: 'BV1GJ411x7h7',
+      page: 1,
+      title: '【阿什拉夫·哈基米】世界第一右翼卫推进破逼抢与重炮远射',
+      url: 'https://www.bilibili.com/all?keyword=%E9%98%BF%E4%BB%80%E6%8B%89%E5%A4%AB+%E4%B8%96%E7%95%8C%E6%B3%A2+%E6%91%A9%E6%B4%9B%E5%93%A5'
+    },
+    yt1: {
+      id: 'hakimi_rocket_02',
+      start: 0,
+      title: 'Achraf Hakimi Press-Breaking Drive & Long-Range Rocket for Morocco',
+      url: 'https://www.youtube.com/results?search_query=Achraf+Hakimi+long+range+goal+Morocco'
+    },
+    zhibo8: {
+      label: '直播吧原片：右翼卫阿什拉夫内切破围抢轰世界波',
+      url: 'https://www.zhibo8.com/zuqiu/2026/1114-c4c9fb1-svideo.htm'
+    },
+    watchCue:
+      '直播吧回放对照重点：进攻型翼卫破边路封锁——当对手封死下底通道时，观察 #2 阿什拉夫 3.3s–7.5s 横向内切连过两名白衣后腰，并在 8.55s 果断轰出 28 米电梯重炮！'
   }
 };

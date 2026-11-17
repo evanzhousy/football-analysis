@@ -42,26 +42,30 @@ export function preloadBabylonAthleteRig(scene, onProgress) {
   return rigPreloadPromise;
 }
 
+export function isHeroRole(role) {
+  return role === 'pedri' || role === 'hero';
+}
+
 /**
  * Creates EA Sports FC style overhead tactical nameplate billboard
  */
 function createOverheadLabelPlane(scene, text, role) {
-  const isPedri = role === 'pedri';
+  const isHero = isHeroRole(role);
   const tex = new BABYLON.DynamicTexture(`LblTex_${text}`, { width: 384, height: 96 }, scene, true);
   tex.hasAlpha = true;
   const ctx = tex.getContext();
   ctx.clearRect(0, 0, 384, 96);
 
-  const bg = isPedri
+  const bg = isHero
     ? 'rgba(10, 16, 30, 0.90)'
     : role === 'teammate'
     ? 'rgba(12, 30, 58, 0.80)'
     : 'rgba(48, 14, 18, 0.80)';
-  const border = isPedri ? '#facc15' : role === 'teammate' ? '#38bdf8' : '#f87171';
+  const border = isHero ? '#facc15' : role === 'teammate' ? '#38bdf8' : '#f87171';
 
   ctx.fillStyle = bg;
   ctx.strokeStyle = border;
-  ctx.lineWidth = isPedri ? 3.5 : 2.5;
+  ctx.lineWidth = isHero ? 3.5 : 2.5;
   ctx.beginPath();
   ctx.roundRect(22, 8, 340, 52, 26);
   ctx.fill();
@@ -75,8 +79,8 @@ function createOverheadLabelPlane(scene, text, role) {
   ctx.closePath();
   ctx.fill();
 
-  ctx.fillStyle = isPedri ? '#fde047' : '#f1f5f9';
-  ctx.font = '700 23px "Inter", "Noto Sans SC", sans-serif';
+  ctx.fillStyle = isHero ? '#fde047' : '#f1f5f9';
+  ctx.font = '700 22px "Inter", "Noto Sans SC", sans-serif';
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
   ctx.fillText(text, 192, 34);
@@ -86,10 +90,10 @@ function createOverheadLabelPlane(scene, text, role) {
 
   const plane = BABYLON.MeshBuilder.CreatePlane(
     `LabelPlane_${text}`,
-    { width: isPedri ? 0.78 : 0.64, height: isPedri ? 0.195 : 0.16 },
+    { width: isHero ? 0.80 : 0.66, height: isHero ? 0.20 : 0.165 },
     scene
   );
-  plane.position.set(0, isPedri ? 2.02 : 1.97, 0);
+  plane.position.set(0, isHero ? 2.02 : 1.97, 0);
   plane.billboardMode = BABYLON.Mesh.BILLBOARDMODE_ALL;
   plane.isPickable = false;
   plane.renderingGroupId = 1;
@@ -106,8 +110,9 @@ function createOverheadLabelPlane(scene, text, role) {
 }
 
 function createPlayerGroundRing(scene, role) {
-  const innerR = role === 'pedri' ? 0.31 : 0.23;
-  const outerR = role === 'pedri' ? 0.38 : 0.28;
+  const isHero = isHeroRole(role);
+  const innerR = isHero ? 0.31 : 0.23;
+  const outerR = isHero ? 0.38 : 0.28;
   const segs = 40;
   const p1 = [];
   const p2 = [];
@@ -123,9 +128,9 @@ function createPlayerGroundRing(scene, role) {
   );
   const mat = new BABYLON.StandardMaterial(`RingMat_${role}`, scene);
   mat.disableLighting = true;
-  const hex = role === 'pedri' ? '#facc15' : role === 'teammate' ? '#38bdf8' : '#f87171';
+  const hex = isHero ? '#facc15' : role === 'teammate' ? '#38bdf8' : '#f87171';
   mat.emissiveColor = BABYLON.Color3.FromHexString(hex);
-  mat.alpha = role === 'pedri' ? 0.88 : 0.38;
+  mat.alpha = isHero ? 0.88 : 0.38;
   mat.backFaceCulling = false;
   ring.material = mat;
   ring.isPickable = false;
@@ -245,7 +250,7 @@ export function createBabylonPlayer(scene, actorDef, shadowGen, parentNode = nul
   const labelPlane = actorDef.label ? createOverheadLabelPlane(scene, actorDef.label, actorDef.role) : null;
   if (labelPlane) labelPlane.parent = root;
 
-  const scanCone = actorDef.role === 'pedri' ? createVisionScanCone(scene) : null;
+  const scanCone = isHeroRole(actorDef.role) ? createVisionScanCone(scene) : null;
   if (scanCone) scanCone.parent = root;
 
   const coverShadow = actorDef.role === 'defender' ? createCoverShadowWedge(scene) : null;
@@ -449,10 +454,9 @@ export function updateBabylonPlayerPose(playerModel, state, overlaysConfig) {
         { lines, updatable: true },
         playerModel.scene
       );
-      ls.color =
-        playerModel.actorDef.role === 'pedri'
-          ? new BABYLON.Color3(0.99, 0.84, 0.12)
-          : new BABYLON.Color3(0.22, 0.78, 0.98);
+      ls.color = isHeroRole(playerModel.actorDef.role)
+        ? new BABYLON.Color3(0.99, 0.84, 0.12)
+        : new BABYLON.Color3(0.22, 0.78, 0.98);
       ls.renderingGroupId = 2;
       ls.isPickable = false;
       ls.alwaysSelectAsActiveMesh = true;

@@ -3,10 +3,10 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>佩德里中场抗逼抢 · Babylon.js 游戏引擎 × Mixamo 官方足球动捕库 × 实况1:1帧同步</title>
+  <title>全位置抗逼抢与摆脱 3D 实验室 · 中场 × 前锋 × 后卫 × Babylon.js 1:1 实况帧同步</title>
   <meta
     name="description"
-    content="基于成熟 Web 游戏引擎 Babylon.js 7.54、Adobe Mixamo 一体成型零破洞标准运动员模型、32组官方《Soccer Pack》足球动捕库与直播吧实况视频主时钟1:1同步的佩德里抗逼抢实验室。"
+    content="覆盖中场(佩德里/萨乌尔/德布劳内)、前锋(亚马尔/维尼修斯/贝尔/巴尔迪)、后卫(范戴克/廷伯/戴维斯/阿什拉夫)共18大直播吧实况1:1帧同步抗逼抢与摆脱3D战术实验室，基于Babylon.js 7.54与Mixamo 65骨《Soccer Pack》官方动捕库。"
   />
   <link rel="stylesheet" href="./index.css" />
   <script src="./vendor/babylon/babylon.js"></script>
@@ -17,33 +17,39 @@
     <!-- Top Broadcast Navigation -->
     <header class="topbar">
       <div class="brand-group">
-        <div class="jersey-crest" aria-hidden="true">8</div>
+        <div id="brand-jersey-crest" class="jersey-crest" aria-hidden="true">8</div>
         <div class="brand-titles">
-          <h1>佩德里抗逼抢 · Babylon.js 游戏引擎 × Mixamo 官方《Soccer Pack》动捕库 × 1:1 帧同步</h1>
-          <p class="brand-subtitle">一体成型零破洞 65 骨运动员模型 + 32 组 Mixamo 原生足球动捕 + 直播吧视频主时钟零漂移锁定</p>
+          <h1>全位置抗逼抢与摆脱 3D 实验室 · 中场 × 前锋 × 后卫 × 1:1 实况帧同步</h1>
+          <p class="brand-subtitle">Babylon.js 7.54 引擎 + 一体成型零破洞 65 骨球员 + 32 组 Mixamo《Soccer Pack》+ 18 大直播吧主时钟同步</p>
         </div>
       </div>
 
       <nav class="camera-toolbar" aria-label="Mixamo官方足球动捕库、骨骼透视与 3D 摄像机切换">
-        <select id="mocap-mode-select" class="mocap-select" aria-label="切换8大视频1:1同步场景或单独检阅32组Mixamo官方足球动捕库">
-          <option value="tactical">⚽ 实战视频 1:1 帧同步模式 (8大直播吧切片)</option>
+        <select id="mocap-mode-select" class="mocap-select" aria-label="切换18大视频1:1同步场景或单独检阅32组Mixamo官方足球动捕库">
+          <option value="tactical">⚽ 实战视频 1:1 帧同步模式 (18大中场/前锋/后卫切片)</option>
         </select>
         <button id="btn-xray-top" class="toggle-chip" type="button">65骨骼透视(X-Ray)</button>
         <button id="btn-layout-split" class="toggle-chip active" type="button">实况视频+3D同屏</button>
         <span class="toolbar-label" style="margin-left:4px;">机位</span>
         <button id="cam-broadcast" class="cam-btn active" data-cam="broadcast" type="button">转播对齐</button>
-        <button id="cam-pedri" class="cam-btn" data-cam="pedri" type="button">肩后</button>
+        <button id="cam-pedri" class="cam-btn" data-cam="pedri" type="button">主角肩后</button>
         <button id="cam-ankle" class="cam-btn" data-cam="ankle" type="button">足踝特写</button>
         <button id="cam-topdown" class="cam-btn" data-cam="topdown" type="button">俯视</button>
         <button id="cam-free" class="cam-btn" data-cam="free" type="button">自由3D</button>
       </nav>
     </header>
 
-    <!-- Left Sidebar: 8 Canonical Pressing Scenarios -->
-    <aside class="scenario-sidebar" aria-label="8大中场逼抢与摆脱场景目录">
+    <!-- Left Sidebar: 18 Multi-Position Pressing & Escape Scenarios -->
+    <aside class="scenario-sidebar" aria-label="18大全位置逼抢与摆脱场景目录">
       <div class="panel-header">
-        <h2>中场逼抢场景库</h2>
-        <span class="panel-count">8 SCENARIOS</span>
+        <h2>全位置逼抢与摆脱库</h2>
+        <span id="scenario-count-badge" class="panel-count">18 SCENARIOS</span>
+      </div>
+      <div id="position-filter-tabs" class="position-filter-tabs" role="tablist" aria-label="按场上位置筛选场景">
+        <button class="pos-tab-btn active" data-pos="ALL" type="button">全部 <em>18</em></button>
+        <button class="pos-tab-btn" data-pos="MF" type="button">中场 <em>10</em></button>
+        <button class="pos-tab-btn" data-pos="FW" type="button">前锋 <em>4</em></button>
+        <button class="pos-tab-btn" data-pos="DF" type="button">后卫 <em>4</em></button>
       </div>
       <div id="scenario-list" class="scenario-list"></div>
     </aside>
@@ -58,9 +64,9 @@
           </div>
           <div class="video-source-tabs" role="tablist" aria-label="视频片源切换">
             <button id="vsrc-zhibo8" class="vsrc-btn active" data-vsrc="zhibo8" type="button">直播吧回放剪辑</button>
-            <button id="vsrc-reel" class="vsrc-btn" data-vsrc="reel" type="button">8大过人总集锦</button>
-            <button id="vsrc-bili" class="vsrc-btn" data-vsrc="bili" type="button">B站分P</button>
-            <button id="vsrc-yt1" class="vsrc-btn" data-vsrc="yt1" type="button">YouTube①</button>
+            <button id="vsrc-reel" class="vsrc-btn" data-vsrc="reel" type="button">佩德里8集连播</button>
+            <button id="vsrc-bili" class="vsrc-btn" data-vsrc="bili" type="button">B站参考</button>
+            <button id="vsrc-yt1" class="vsrc-btn" data-vsrc="yt1" type="button">YouTube</button>
             <button id="vsrc-local" class="vsrc-btn" data-vsrc="local" type="button">自选MP4</button>
           </div>
           <div id="zhibo8-subclips-bar" class="zhibo8-subclips-bar">
@@ -130,7 +136,7 @@
           </div>
 
           <div class="legend-box" aria-hidden="true">
-            <div class="legend-row"><span class="swatch" style="background:#facc15;"></span>#8 佩德里 (一体成型零破洞)</div>
+            <div class="legend-row"><span class="swatch" style="background:#facc15;"></span><span id="legend-hero-label">#8 佩德里 (一体成型零破洞)</span></div>
             <div class="legend-row"><span class="swatch" style="background:#34d399;"></span>Mixamo 原生足球动捕姿态</div>
             <div class="legend-row"><span class="swatch" style="background:#ef4444;"></span>对手逼抢 & 滑铲封堵</div>
           </div>
