@@ -1,0 +1,13 @@
+{
+  "name": "pedri-press-resistance-3d",
+  "version": "1.0.0",
+  "description": "Three.js 3D Tactical Modeling of Pedri's Press-Resistance & Midfield Escape Techniques",
+  "private": true,
+  "scripts": {
+    "dev": "python3 -m http.server 5173",
+    "start": "python3 -m http.server 5173"
+  },
+  "dependencies": {
+    "three": "^0.183.2"
+  }
+}

@@ -1,0 +1,285 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>佩德里中场抗逼抢 · 67骨骼蒙皮 × 120Hz动捕 × 真实视频同屏战术实验室</title>
+  <meta
+    name="description"
+    content="基于 Mixamo 67骨骼 SkinnedMesh 蒙皮、双骨解析足踝 IK、CMU 120Hz 光学足球动捕与真实比赛视频的佩德里中场抗逼抢 3D 实验室。"
+  />
+  <link rel="stylesheet" href="./index.css" />
+  <script type="importmap">
+    {
+      "imports": {
+        "three": "./vendor/three/build/three.module.js",
+        "three/addons/": "./vendor/three/examples/jsm/"
+      }
+    }
+  </script>
+</head>
+<body>
+  <div class="studio-shell">
+    <!-- Top Broadcast Navigation -->
+    <header class="topbar">
+      <div class="brand-group">
+        <div class="jersey-crest" aria-hidden="true">8</div>
+        <div class="brand-titles">
+          <h1>佩德里抗逼抢 · 67骨骼蒙皮 × 足踝IK × 真实视频 3D 实验室</h1>
+          <p class="brand-subtitle">Mixamo 67骨 SkinnedMesh + 手臂/20指节/足踝IK + CMU 120Hz 光学动捕 × 实况同屏</p>
+        </div>
+      </div>
+
+      <nav class="camera-toolbar" aria-label="动捕引擎、骨骼透视与 3D 摄像机切换">
+        <select id="mocap-mode-select" class="mocap-select" aria-label="切换骨骼驱动模式或 120Hz 光学动捕原片">
+          <option value="tactical">模式：8大战术场景 (67骨骼 + 动捕混合 + 足踝IK)</option>
+          <option value="cmu-10-01">CMU 10_01 · 120Hz 光学动捕原片：助跑脚背抽射</option>
+          <option value="cmu-10-05">CMU 10_05 · 120Hz 光学动捕原片：碎步调整与击球</option>
+          <option value="cmu-11-01">CMU 11_01 · 120Hz 光学动捕原片：沉髋摆臂射门</option>
+        </select>
+        <button id="btn-xray-top" class="toggle-chip" type="button">67骨骼透视(X-Ray)</button>
+        <button id="btn-layout-split" class="toggle-chip active" type="button">实况视频+3D同屏</button>
+        <span class="toolbar-label" style="margin-left:4px;">机位</span>
+        <button id="cam-broadcast" class="cam-btn active" data-cam="broadcast" type="button">转播</button>
+        <button id="cam-pedri" class="cam-btn" data-cam="pedri" type="button">肩后</button>
+        <button id="cam-ankle" class="cam-btn" data-cam="ankle" type="button">足踝特写</button>
+        <button id="cam-topdown" class="cam-btn" data-cam="topdown" type="button">俯视</button>
+        <button id="cam-free" class="cam-btn" data-cam="free" type="button">自由3D</button>
+      </nav>
+    </header>
+
+    <!-- Left Sidebar: 8 Canonical Pressing Scenarios -->
+    <aside class="scenario-sidebar" aria-label="8大中场逼抢与摆脱场景目录">
+      <div class="panel-header">
+        <h2>中场逼抢场景库</h2>
+        <span class="panel-count">8 SCENARIOS</span>
+      </div>
+      <div id="scenario-list" class="scenario-list"></div>
+    </aside>
+
+    <!-- Center Split Stage: Left Real Match Video Deck + Right Three.js WebGL Stage -->
+    <main id="viewport-stage" class="viewport-stage split-mode">
+      <!-- Real Video Clip Sync Deck -->
+      <section class="real-video-deck" aria-label="真实比赛视频对照播放舱">
+        <div class="video-deck-header">
+          <div class="video-deck-title-row">
+            <span class="video-deck-heading">直播吧回放实况剪辑舱 (Zhibo8 Clipped MP4)</span>
+          </div>
+          <div class="video-source-tabs" role="tablist" aria-label="视频片源切换">
+            <button id="vsrc-zhibo8" class="vsrc-btn active" data-vsrc="zhibo8" type="button">直播吧回放剪辑</button>
+            <button id="vsrc-reel" class="vsrc-btn" data-vsrc="reel" type="button">8大过人总集锦</button>
+            <button id="vsrc-bili" class="vsrc-btn" data-vsrc="bili" type="button">B站分P</button>
+            <button id="vsrc-yt1" class="vsrc-btn" data-vsrc="yt1" type="button">YouTube①</button>
+            <button id="vsrc-local" class="vsrc-btn" data-vsrc="local" type="button">自选MP4</button>
+          </div>
+          <div id="zhibo8-subclips-bar" class="zhibo8-subclips-bar">
+            <div id="zhibo8-subclips-btns" class="zhibo8-subclips-btns"></div>
+            <label class="sync-toggle-chip" title="拖动底部3D时间轴或切换慢放倍速时，同步控制直播吧剪辑视频">
+              <input id="chk-sync-video" type="checkbox" checked />
+              <span>与3D进度/慢放同步</span>
+            </label>
+          </div>
+        </div>
+
+        <!-- Embedded Player Container -->
+        <div id="video-player-frame" class="video-player-frame">
+          <video
+            id="zhibo8-clip-el"
+            controls
+            playsinline
+            muted
+            loop
+            preload="metadata"
+          ></video>
+
+          <iframe
+            id="real-video-iframe"
+            title="佩德里真实比赛集锦播放器"
+            style="display:none;"
+            allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; fullscreen"
+            allowfullscreen
+            referrerpolicy="no-referrer-when-downgrade"
+          ></iframe>
+
+          <div id="local-video-box" class="local-video-loader" style="display:none;">
+            <video id="local-video-el" controls playsinline loop style="display:none;"></video>
+            <div id="local-video-prompt">
+              <p style="margin-bottom:8px;">导入其他本地比赛片段（MP4 / WebM），即可与右侧 67 骨骼模型同步 0.25x/0.5x 慢速播放对比：</p>
+              <label class="file-upload-label" for="local-video-input">选择本地比赛视频文件</label>
+              <input id="local-video-input" type="file" accept="video/*" style="display:none;" />
+            </div>
+          </div>
+        </div>
+
+        <!-- Video Watch Guide & Direct Jump / Download Links -->
+        <div class="video-clip-meta">
+          <div id="video-now-title" class="video-now-playing"></div>
+          <div id="video-watch-cue" class="video-watch-cue"></div>
+          <div class="external-links-row">
+            <a id="download-zhibo8-mp4" class="ext-video-link highlight-dl" href="./assets/videos/s1_zhibo8_half_turn.mp4" download="s1_zhibo8_pedri_half_turn.mp4">下载当前剪辑 MP4 ⬇</a>
+            <a id="ext-link-zhibo8" class="ext-video-link" href="#" target="_blank" rel="noopener noreferrer">直播吧原帖 ↗</a>
+            <a id="ext-link-bili" class="ext-video-link" href="#" target="_blank" rel="noopener noreferrer">B站原视频 ↗</a>
+            <a id="ext-link-yt" class="ext-video-link" href="#" target="_blank" rel="noopener noreferrer">YouTube ↗</a>
+          </div>
+        </div>
+      </section>
+
+      <!-- Three.js 3D Modeling Pane -->
+      <div class="three-pane-wrap">
+        <div id="three-canvas-container"></div>
+
+        <div class="live-hud-banner">
+          <div class="phase-callout-box">
+            <div class="phase-step-row">
+              <span id="live-phase-badge" class="phase-badge">阶段1</span>
+              <span id="live-match-source" class="match-source-pill">67骨骼蒙皮加载中...</span>
+            </div>
+            <p id="live-phase-desc" class="phase-live-text"></p>
+          </div>
+
+          <div class="legend-box" aria-hidden="true">
+            <div class="legend-row"><span class="swatch" style="background:#facc15;"></span>#8 佩德里 (67骨蒙皮)</div>
+            <div class="legend-row"><span class="swatch" style="background:#34d399;"></span>主动触球足踝 IK 锚点</div>
+            <div class="legend-row"><span class="swatch" style="background:#ef4444;"></span>对手逼抢 & 压迫阴影</div>
+          </div>
+        </div>
+      </div>
+    </main>
+
+    <!-- Bottom Playback & Phase Scrubber -->
+    <section class="timeline-dock" aria-label="战术动作时间轴与慢镜控制">
+      <div id="phase-pills-row" class="phase-pills-row"></div>
+
+      <div class="transport-controls-row">
+        <button id="btn-play-toggle" class="play-btn" type="button">暂停 ❚❚</button>
+
+        <div class="scrubber-wrap">
+          <input
+            id="timeline-slider"
+            type="range"
+            min="0"
+            max="1000"
+            value="0"
+            aria-label="动作进度条"
+          />
+          <span id="time-readout" class="time-readout">0.0s</span>
+        </div>
+
+        <div class="speed-group" role="group" aria-label="回放倍速">
+          <button id="speed-025" class="speed-btn" data-speed="0.25" type="button">0.25x 帧拆解</button>
+          <button id="speed-050" class="speed-btn active" data-speed="0.5" type="button">0.5x 教学</button>
+          <button id="speed-100" class="speed-btn" data-speed="1.0" type="button">1.0x 实战</button>
+        </div>
+      </div>
+    </section>
+
+    <!-- Right Biomechanical & Tactical Inspector -->
+    <aside class="tactical-inspector" aria-label="生物力学与技术细节面板">
+      <div class="inspector-section">
+        <span id="insp-eyebrow" class="section-eyebrow">SCENARIO 01</span>
+        <h2 id="insp-title" class="inspector-title"></h2>
+        <p id="insp-move" class="inspector-subtitle"></p>
+        <p id="insp-pressure" class="inspector-subtitle"></p>
+      </div>
+
+      <!-- NEW: Live 67-Bone & Ankle Joint Telemetry -->
+      <div class="inspector-section">
+        <span class="section-eyebrow">骨骼蒙皮与足踝 IK 实时遥测 (67-Bone Rig)</span>
+        <div class="rig-telemetry-box">
+          <div class="rig-telemetry-line">
+            <span class="rig-telemetry-key">骨骼与蒙皮</span>
+            <span id="rig-bone-count" class="rig-telemetry-val">67 Bones · 28.3k Verts</span>
+          </div>
+          <div class="rig-telemetry-line">
+            <span class="rig-telemetry-key">动捕混合通道</span>
+            <span id="rig-active-clip" class="rig-telemetry-val">Mocap + Ankle IK</span>
+          </div>
+          <div class="rig-telemetry-line">
+            <span class="rig-telemetry-key">触球足踝状态</span>
+            <span id="rig-active-foot" class="rig-telemetry-val" style="color:var(--accent-gold);">双脚动态支撑</span>
+          </div>
+          <div class="rig-telemetry-line">
+            <span class="rig-telemetry-key">膝屈曲 / 踝背屈·外翻</span>
+            <span id="rig-joint-angles" class="rig-telemetry-val">Knee 18° · Ankle 0°/0°</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="inspector-section">
+        <span class="section-eyebrow">关键生物力学参数</span>
+        <div class="metrics-grid">
+          <div class="metric-box">
+            <div class="metric-label">触球机制</div>
+            <div id="metric-touches" class="metric-val"></div>
+          </div>
+          <div class="metric-box">
+            <div class="metric-label">重心诱导幅度</div>
+            <div id="metric-feint" class="metric-val"></div>
+          </div>
+          <div class="metric-box">
+            <div class="metric-label">预判扫描</div>
+            <div id="metric-scans" class="metric-val"></div>
+          </div>
+          <div class="metric-box">
+            <div class="metric-label">摆脱窗口</div>
+            <div id="metric-window" class="metric-val"></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="inspector-section">
+        <span class="section-eyebrow">实时空间遥测 (Live Telemetry)</span>
+        <div class="telemetry-bars">
+          <div class="telemetry-row">
+            <div class="telemetry-row-top">
+              <span>局部逼抢压迫强度</span>
+              <span id="val-press-intensity">0%</span>
+            </div>
+            <div class="telemetry-track">
+              <div id="bar-press-intensity" class="telemetry-fill" style="background:#ef4444;width:40%;"></div>
+            </div>
+          </div>
+
+          <div class="telemetry-row">
+            <div class="telemetry-row-top">
+              <span>沉肩/假动作欺骗指数</span>
+              <span id="val-deception">0%</span>
+            </div>
+            <div class="telemetry-track">
+              <div id="bar-deception" class="telemetry-fill" style="background:#facc15;width:50%;"></div>
+            </div>
+          </div>
+
+          <div class="telemetry-row">
+            <div class="telemetry-row-top">
+              <span>最近防守人剥离间距</span>
+              <span id="val-separation">0.0 m</span>
+            </div>
+            <div class="telemetry-track">
+              <div id="bar-separation" class="telemetry-fill" style="background:#34d399;width:45%;"></div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="inspector-section">
+        <span class="section-eyebrow">摆脱动作拆解要领</span>
+        <ul id="insp-keypoints" class="keypoints-list"></ul>
+      </div>
+
+      <div class="inspector-section">
+        <span class="section-eyebrow">3D 骨骼与战术辅助图层</span>
+        <div class="overlay-toggles">
+          <button id="toggle-skeleton" class="toggle-chip" type="button">67骨骼透视(X-Ray)</button>
+          <button id="toggle-scan" class="toggle-chip active" type="button">360° 扫描视野锥</button>
+          <button id="toggle-shadow" class="toggle-chip active" type="button">防守压迫阴影</button>
+          <button id="toggle-traj" class="toggle-chip active" type="button">跑位与失位轨迹</button>
+          <button id="toggle-labels" class="toggle-chip active" type="button">球员战术铭牌</button>
+        </div>
+      </div>
+    </aside>
+  </div>
+
+  <script type="module" src="./src/main.js"></script>
+</body>
+</html>
