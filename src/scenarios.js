@@ -1424,8 +1424,9 @@ export const SCENARIOS = [
         ],
         mocapSchedule: [
           { start: 0.0, end: 2.28, clip: 'sprint_fwd', rate: 1.08 },
-          { start: 2.28, end: 3.65, clip: 'soccer_turf_hand_shield', rate: 1.25, offset: 0.05 },
-          { start: 3.65, end: 7.767, clip: 'walk_fwd', rate: 0.85 }
+          { start: 2.28, end: 3.55, clip: 'soccer_slide_tackle', rate: 0.92, offset: 0.0 },
+          { start: 3.55, end: 4.55, clip: 'soccer_turf_hand_shield', rate: 1.05, offset: 0.0 },
+          { start: 4.55, end: 7.767, clip: 'walk_fwd', rate: 0.85 }
         ]
       },
       {
@@ -1449,8 +1450,9 @@ export const SCENARIOS = [
         ],
         mocapSchedule: [
           { start: 0.0, end: 3.48, clip: 'jog_fwd', rate: 1.05 },
-          { start: 3.48, end: 4.85, clip: 'soccer_turf_hand_shield', rate: 1.25, offset: 0.05 },
-          { start: 4.85, end: 7.767, clip: 'walk_fwd', rate: 0.85 }
+          { start: 3.48, end: 4.75, clip: 'soccer_slide_tackle', rate: 0.92, offset: 0.0 },
+          { start: 4.75, end: 5.75, clip: 'soccer_turf_hand_shield', rate: 1.05, offset: 0.0 },
+          { start: 5.75, end: 7.767, clip: 'walk_fwd', rate: 0.85 }
         ]
       },
       {
@@ -1466,6 +1468,10 @@ export const SCENARIOS = [
           { t: 4.95, x: 0.85, z: -32.8, yaw: 0.2, crouch: 0.55, showShadow: false },
           { t: 5.75, x: -1.95, z: -33.4, yaw: 0.45, crouch: 0.75, leanRoll: 0.28, showShadow: false },
           { t: 7.767, x: -1.95, z: -33.4, yaw: 0.45, crouch: 0.55, showShadow: false }
+        ],
+        mocapSchedule: [
+          { start: 0.0, end: 4.95, clip: 'crouch_jockey_fwd', rate: 1.0 },
+          { start: 4.95, end: 7.767, clip: 'gk_dive_right', rate: 0.95, offset: 0.0 }
         ]
       }
     ],

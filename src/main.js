@@ -1,85 +1,110 @@
-import * as THREE from 'three';
-import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
-import { createPitchEnvironment, createMatchBall } from './pitch.js';
+const BABYLON = window.BABYLON;
+import { createBabylonPitchEnvironment, createBabylonMatchBall } from './babylonPitch.js';
 import {
-  preloadAthleteRig,
-  attachRiggedSkinnedModel,
-  createArticulatedPlayer,
-  updatePlayerPose,
-  createTrajectoryRibbon
-} from './player3d.js';
-import { MOCAP_CATALOG, getMocapClip, getMocapMeta } from './mocapLibrary.js';
+  preloadBabylonAthleteRig,
+  attachBabylonAthleteRig,
+  createBabylonPlayer,
+  updateBabylonPlayerPose,
+  createBabylonTrajectoryRibbon
+} from './babylonPlayer.js';
+import { MOCAP_CATALOG, getMocapMeta, getMocapDuration } from './mixamoSoccerLibrary.js';
 import { SCENARIOS, evaluateScenarioAtTime } from './scenarios.js';
 import { SCENARIO_VIDEOS, MASTER_ZHIBO8_REEL } from './videos.js';
+
+function clamp(v, lo, hi) {
+  return Math.max(lo, Math.min(hi, v));
+}
+
+function lerp(a, b, t) {
+  return a + (b - a) * t;
+}
 
 const container = document.getElementById('three-canvas-container');
 const viewportStageEl = document.getElementById('viewport-stage');
 
-// 1. Initialize Three.js WebGLRenderer, Scene & Camera
-const scene = new THREE.Scene();
-scene.background = new THREE.Color(0x090f16);
-scene.fog = new THREE.FogExp2(0x090f16, 0.0075);
+// 1. Initialize Babylon.js 7.54 WebGL2 Engine, Right-Handed glTF Scene & Cameras
+const canvas = document.createElement('canvas');
+canvas.id = 'babylon-canvas';
+canvas.style.width = '100%';
+canvas.style.height = '100%';
+canvas.style.display = 'block';
+canvas.style.outline = 'none';
+canvas.style.touchAction = 'none';
+container.innerHTML = '';
+container.appendChild(canvas);
 
-const camera = new THREE.PerspectiveCamera(
-  35,
-  Math.max(1, container.clientWidth) / Math.max(1, container.clientHeight),
-  0.15,
-  200
+const engine = new BABYLON.Engine(canvas, true, {
+  preserveDrawingBuffer: true,
+  stencil: true,
+  powerPreference: 'high-performance'
+});
+engine.setHardwareScalingLevel(1 / Math.min(window.devicePixelRatio || 1, 2));
+
+const scene = new BABYLON.Scene(engine);
+scene.useRightHandedSystem = true;
+scene.setRenderingAutoClearDepthStencil(1, false, false, false);
+scene.setRenderingAutoClearDepthStencil(2, true, true, false);
+
+const mainCamera = new BABYLON.UniversalCamera(
+  'TacticalBroadcastCamera',
+  new BABYLON.Vector3(20, 9.5, 8),
+  scene
 );
-camera.position.set(20, 9.5, 8);
+mainCamera.minZ = 0.08;
+mainCamera.maxZ = 220;
+mainCamera.fov = (35 * Math.PI) / 180;
 
-const renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance' });
-renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
-renderer.setSize(Math.max(1, container.clientWidth), Math.max(1, container.clientHeight));
-renderer.shadowMap.enabled = true;
-renderer.shadowMap.type = THREE.PCFSoftShadowMap;
-renderer.toneMapping = THREE.ACESFilmicToneMapping;
-renderer.toneMappingExposure = 1.08;
-container.appendChild(renderer.domElement);
+const freeCamera = new BABYLON.ArcRotateCamera(
+  'FreeOrbitCamera',
+  0.4,
+  1.15,
+  14.0,
+  new BABYLON.Vector3(0, 0.9, 0),
+  scene
+);
+freeCamera.minZ = 0.08;
+freeCamera.maxZ = 220;
+freeCamera.fov = (35 * Math.PI) / 180;
+freeCamera.lowerRadiusLimit = 0.75;
+freeCamera.upperRadiusLimit = 62;
+freeCamera.upperBetaLimit = Math.PI * 0.495;
+freeCamera.wheelPrecision = 35;
+freeCamera.panningSensibility = 450;
 
-const controls = new OrbitControls(camera, renderer.domElement);
-controls.enableDamping = true;
-controls.dampingFactor = 0.07;
-controls.maxPolarAngle = Math.PI * 0.49;
-controls.minDistance = 1.4;
-controls.maxDistance = 58;
-controls.enabled = false;
+scene.activeCamera = mainCamera;
 
-renderer.domElement.addEventListener('pointerdown', () => {
+const currentCamTarget = new BABYLON.Vector3(0, 0.9, 0);
+const desiredCamPos = new BABYLON.Vector3(20, 9.5, 8);
+const desiredCamTarget = new BABYLON.Vector3(0, 0.9, 0);
+
+canvas.addEventListener('pointerdown', () => {
   if (cameraMode !== 'free') {
     setCameraMode('free', false);
   }
 });
 
 const resizeObserver = new ResizeObserver(() => {
-  const w = container.clientWidth;
-  const h = container.clientHeight;
-  if (w > 0 && h > 0) {
-    camera.aspect = w / h;
-    camera.updateProjectionMatrix();
-    renderer.setSize(w, h);
+  if (container.clientWidth > 0 && container.clientHeight > 0) {
+    engine.resize();
   }
 });
 resizeObserver.observe(container);
 
-// 2. Build Pitch & Match Ball
-createPitchEnvironment(scene);
-const matchBall = createMatchBall();
-scene.add(matchBall);
+// 2. Build Stadium Pitch, Floodlights, PCF Shadows & FIFA Size-5 Match Ball
+const { shadowGen } = createBabylonPitchEnvironment(scene);
+const matchBall = createBabylonMatchBall(scene, shadowGen);
 
-const scenarioGroup = new THREE.Group();
-scene.add(scenarioGroup);
-
-const mocapShowcaseGroup = new THREE.Group();
-mocapShowcaseGroup.visible = false;
-scene.add(mocapShowcaseGroup);
+const scenarioGroup = new BABYLON.TransformNode('ScenarioGroup', scene);
+const mocapShowcaseGroup = new BABYLON.TransformNode('MocapShowcaseGroup', scene);
+mocapShowcaseGroup.setEnabled(false);
 
 let activeScenarioIndex = 0;
 let activeActors = [];
 let activeRibbons = [];
 let snapCameraNextFrame = true;
+let rigLoaded = false;
 
-// Playback, Master Video Clock & Mocap Library State
+// Playback, Master Video Clock & Mixamo Soccer Pack Library State
 let isPlaying = true;
 let playbackSpeed = 0.5;
 let currentSec = 0.0;
@@ -96,7 +121,8 @@ const overlaysConfig = {
   showScan: true,
   showCoverShadow: true,
   showTrajectories: true,
-  showLabels: true
+  showLabels: true,
+  cameraMode: 'broadcast'
 };
 
 // UI References
@@ -157,7 +183,7 @@ const valDeception = document.getElementById('val-deception');
 const barSeparation = document.getElementById('bar-separation');
 const valSeparation = document.getElementById('val-separation');
 
-// Populate 28-Clip Common Football Optical Mocap Library into #mocap-mode-select
+// Populate 32-Clip Official Adobe Mixamo《Soccer Pack》Library into #mocap-mode-select
 function buildMocapLibrarySelector() {
   mocapModeSelectEl.innerHTML = '';
 
@@ -174,7 +200,7 @@ function buildMocapLibrarySelector() {
 
   for (const [catName, list] of byCat.entries()) {
     const grp = document.createElement('optgroup');
-    grp.label = `公共光学动捕库 · ${catName} (${list.length}组)`;
+    grp.label = `Mixamo《Soccer Pack》官方库 · ${catName} (${list.length}组)`;
     for (const item of list) {
       const opt = document.createElement('option');
       opt.value = `lib:${item.id}`;
@@ -186,23 +212,16 @@ function buildMocapLibrarySelector() {
 }
 buildMocapLibrarySelector();
 
-// Preload Photorealistic 67-Bone Footballer GLB + Hair + All 28 Optical Mocap Clips
-preloadAthleteRig((done, total, entry) => {
+// Preload Intact Watertight 65-Bone Mixamo Athlete + All 32 Official《Soccer Pack》Animations
+const rigReadyPromise = preloadBabylonAthleteRig(scene, (done, total, entry) => {
   if (hudMocapBadgeEl) {
-    hudMocapBadgeEl.textContent = `HyperMotion 动作库加载中: ${done}/${total} (${entry.id})...`;
+    hudMocapBadgeEl.textContent = `Mixamo《Soccer Pack》加载中: ${done}/${total} (${entry.id})...`;
   }
 }).then(() => {
-  activeActors.forEach((a) => {
-    attachRiggedSkinnedModel(a.model);
-    if (a.model.skeletonHelper && !a.model.skeletonHelper.parent) {
-      scenarioGroup.add(a.model.skeletonHelper);
-    }
-  });
+  rigLoaded = true;
+  activeActors.forEach((a) => attachBabylonAthleteRig(a.model));
   if (showcasePedriActor) {
-    attachRiggedSkinnedModel(showcasePedriActor);
-    if (showcasePedriActor.skeletonHelper && !showcasePedriActor.skeletonHelper.parent) {
-      mocapShowcaseGroup.add(showcasePedriActor.skeletonHelper);
-    }
+    attachBabylonAthleteRig(showcasePedriActor);
   }
   if (activeMocapMode === 'tactical') {
     matchSourceEl.textContent = SCENARIOS[activeScenarioIndex].matchRef;
@@ -249,13 +268,12 @@ function loadZhibo8ClipElement(srcUrl, titleText, dlFilename, pageUrl, initialTi
   }
 }
 
-// Keep 3D locked even when user scrubs native <video> controls directly!
 zhibo8ClipEl.addEventListener('seeked', () => {
   if (!syncVideoTo3D || activeMocapMode !== 'tactical') return;
   if (activeVideoSource === 'zhibo8') {
     const sc = SCENARIOS[activeScenarioIndex];
     if (activeSubClipIndex === 0) {
-      currentSec = THREE.MathUtils.clamp(zhibo8ClipEl.currentTime, 0, sc.durationSec);
+      currentSec = clamp(zhibo8ClipEl.currentTime, 0, sc.durationSec);
     } else if (zhibo8ClipEl.duration > 0.1) {
       currentSec = (zhibo8ClipEl.currentTime / zhibo8ClipEl.duration) * sc.durationSec;
     }
@@ -271,7 +289,7 @@ function syncScenarioFromMasterReelTime(reelTime) {
       if (activeScenarioIndex !== seg.scenarioIndex) {
         loadScenario(seg.scenarioIndex, { preserveReelPlayback: true });
       }
-      currentSec = THREE.MathUtils.clamp(reelTime - seg.start, 0, SCENARIOS[seg.scenarioIndex].durationSec);
+      currentSec = clamp(reelTime - seg.start, 0, SCENARIOS[seg.scenarioIndex].durationSec);
       return;
     }
   }
@@ -319,7 +337,7 @@ function updateRealVideoDeck() {
   if (activeVideoSource === 'reel') {
     zhibo8SubclipsBarEl.style.display = 'flex';
     zhibo8SubclipsBtnsEl.innerHTML =
-      '<span style="font-size:11px;color:var(--accent-gold);font-weight:600;">55.5s 总集锦连播中 · 3D 场景将随视频自动切换 01→08 帧级联动</span>';
+      '<span style="font-size:11px;color:var(--accent-gold);font-weight:600;">55.5s 总集锦连播中 · Babylon.js 3D 场景随视频自动切换 01→08</span>';
     const seg = (MASTER_ZHIBO8_REEL.segments || []).find((s) => s.scenarioIndex === activeScenarioIndex);
     loadZhibo8ClipElement(
       MASTER_ZHIBO8_REEL.src,
@@ -331,7 +349,6 @@ function updateRealVideoDeck() {
     return;
   }
 
-  // External / local video tabs
   zhibo8SubclipsBarEl.style.display = 'none';
   zhibo8ClipEl.pause();
   zhibo8ClipEl.style.display = 'none';
@@ -341,7 +358,7 @@ function updateRealVideoDeck() {
     videoIframeEl.style.display = 'none';
     videoIframeEl.src = 'about:blank';
     localVideoBoxEl.style.display = 'flex';
-    videoNowTitleEl.textContent = '本地实况视频 × 67骨写实球员同步慢放对比';
+    videoNowTitleEl.textContent = '本地实况视频 × Babylon.js 65骨标准球员同步慢放对比';
     localVideoEl.playbackRate = playbackSpeed;
   } else {
     localVideoBoxEl.style.display = 'none';
@@ -397,15 +414,27 @@ localVideoInputEl.addEventListener('change', (e) => {
   }
 });
 
-btnLayoutSplit.addEventListener('click', () => {
-  splitLayout = !splitLayout;
+function applySplitLayout(nextSplit) {
+  splitLayout = Boolean(nextSplit);
   btnLayoutSplit.classList.toggle('active', splitLayout);
   btnLayoutSplit.textContent = splitLayout ? '实况视频+3D同屏' : '开启实况视频同屏';
   viewportStageEl.classList.toggle('split-mode', splitLayout);
   viewportStageEl.classList.toggle('full3d-mode', !splitLayout);
+  engine.resize();
+}
+
+btnLayoutSplit.addEventListener('click', () => {
+  applySplitLayout(!splitLayout);
 });
 
-// 4. Switch Between 8-Scenario Video 1:1 Mode vs 28-Clip Public Optical Mocap Library Showcase
+// 4. Switch Between 8-Scenario Video 1:1 Mode vs 32-Clip Mixamo《Soccer Pack》Showcase
+function clearShowcaseObjects() {
+  if (showcasePedriActor) {
+    showcasePedriActor.dispose();
+    showcasePedriActor = null;
+  }
+}
+
 function setMocapMode(mode) {
   activeMocapMode = mode;
   mocapModeSelectEl.value = mode;
@@ -413,39 +442,41 @@ function setMocapMode(mode) {
   snapCameraNextFrame = true;
 
   if (mode === 'tactical') {
-    mocapShowcaseGroup.visible = false;
-    scenarioGroup.visible = true;
+    clearShowcaseObjects();
+    mocapShowcaseGroup.setEnabled(false);
+    scenarioGroup.setEnabled(true);
     loadScenario(activeScenarioIndex);
     return;
   }
 
-  // Atomic Mocap Library Clip Showcase ('lib:<clipId>')
   const clipId = mode.replace(/^lib:/, '');
   const meta = getMocapMeta(clipId);
 
-  scenarioGroup.visible = false;
-  mocapShowcaseGroup.visible = true;
-  clearGroup(mocapShowcaseGroup);
+  scenarioGroup.setEnabled(false);
+  mocapShowcaseGroup.setEnabled(true);
 
-  showcasePedriActor = createArticulatedPlayer({
-    id: 'pedri_showcase',
-    role: 'pedri',
-    kit: 'barca-home',
-    number: '8',
-    shirtName: 'PEDRI',
-    hairColor: '#231710',
-    label: `#8 佩德里 · ${clipId}`
-  });
-  mocapShowcaseGroup.add(showcasePedriActor.root);
-  if (showcasePedriActor.skeletonHelper) {
-    mocapShowcaseGroup.add(showcasePedriActor.skeletonHelper);
+  if (!showcasePedriActor) {
+    showcasePedriActor = createBabylonPlayer(
+      scene,
+      {
+        id: 'pedri_showcase',
+        role: 'pedri',
+        kit: 'barca-home',
+        number: '8',
+        shirtName: 'PEDRI',
+        hairColor: '#2b1d14',
+        label: '#8 佩德里'
+      },
+      shadowGen,
+      mocapShowcaseGroup
+    );
   }
 
-  matchSourceEl.textContent = `公共足球光学动作捕捉库 · ${meta.category} (${meta.file})`;
-  inspEyebrowEl.textContent = `PUBLIC MOCAP LIBRARY · ${meta.category}`;
+  matchSourceEl.textContent = `Adobe Mixamo《Soccer Pack》官方库 · ${meta.category} (${meta.file})`;
+  inspEyebrowEl.textContent = `MIXAMO SOCCER PACK · ${meta.category}`;
   inspTitleEl.textContent = meta.label;
-  inspMoveEl.textContent = `动作资产 ID: ${meta.id} · 67骨骼四元数全身姿态曲线`;
-  inspPressureEl.textContent = '提示：可切换「肩后 / 足踝特写 / 自由3D」或按 [X] 开启 67 骨骼透视逐帧检阅动作细节';
+  inspMoveEl.textContent = `动作资产 ID: ${meta.id} · 65骨骼一体成型零破洞姿态曲线`;
+  inspPressureEl.textContent = '提示：可切换「肩后 / 足踝特写 / 自由3D」或按 [X] 开启 65 骨骼透视检阅模型与动作细节';
 }
 
 mocapModeSelectEl.addEventListener('change', (e) => {
@@ -472,8 +503,9 @@ function buildScenarioSidebar() {
       if (activeMocapMode !== 'tactical') {
         activeMocapMode = 'tactical';
         mocapModeSelectEl.value = 'tactical';
-        mocapShowcaseGroup.visible = false;
-        scenarioGroup.visible = true;
+        clearShowcaseObjects();
+        mocapShowcaseGroup.setEnabled(false);
+        scenarioGroup.setEnabled(true);
       }
       if (activeVideoSource === 'reel') {
         const seg = (MASTER_ZHIBO8_REEL.segments || []).find((s) => s.scenarioIndex === idx);
@@ -489,11 +521,18 @@ function buildScenarioSidebar() {
   });
 }
 
-// 6. Load Selected Scenario into Three.js Scene + Sync Video Deck
-function clearGroup(group) {
-  while (group.children.length > 0) {
-    group.remove(group.children[0]);
+// 6. Load Selected Scenario into Babylon.js Scene + Sync Video Deck
+function clearScenarioObjects() {
+  for (const a of activeActors) {
+    a.model.dispose();
   }
+  activeActors = [];
+
+  for (const r of activeRibbons) {
+    if (r.material) r.material.dispose();
+    r.dispose();
+  }
+  activeRibbons = [];
 }
 
 function loadScenario(index, opts = {}) {
@@ -509,27 +548,17 @@ function loadScenario(index, opts = {}) {
     el.classList.toggle('active', i === index);
   });
 
-  clearGroup(scenarioGroup);
+  clearScenarioObjects();
   activeActors = sc.actors.map((actorDef) => {
-    const model = createArticulatedPlayer(actorDef);
-    scenarioGroup.add(model.root);
-    if (model.skeletonHelper) {
-      scenarioGroup.add(model.skeletonHelper);
-    }
+    const model = createBabylonPlayer(scene, actorDef, shadowGen, scenarioGroup);
     return { def: actorDef, model };
   });
 
-  activeRibbons = [];
-  const pedriTube = createTrajectoryRibbon(sc.pedriRibbon, 0xfacc15, 0.055, 0.76);
-  if (pedriTube) {
-    scenarioGroup.add(pedriTube);
-    activeRibbons.push(pedriTube);
-  }
-  const defOvershootTube = createTrajectoryRibbon(sc.overshootRibbon, 0xf87171, 0.045, 0.52);
-  if (defOvershootTube) {
-    scenarioGroup.add(defOvershootTube);
-    activeRibbons.push(defOvershootTube);
-  }
+  const pedriTube = createBabylonTrajectoryRibbon(scene, sc.pedriRibbon, '#facc15', 0.052, 0.76, scenarioGroup);
+  if (pedriTube) activeRibbons.push(pedriTube);
+
+  const defOvershootTube = createBabylonTrajectoryRibbon(scene, sc.overshootRibbon, '#f87171', 0.044, 0.50, scenarioGroup);
+  if (defOvershootTube) activeRibbons.push(defOvershootTube);
 
   inspEyebrowEl.textContent = `SCENARIO ${sc.index} · ${sc.zoneTag}`;
   inspTitleEl.textContent = sc.title;
@@ -559,8 +588,8 @@ function loadScenario(index, opts = {}) {
 
   const [fx, fy, fz] = sc.defaultFocus;
   if (cameraMode === 'free') {
-    controls.target.set(fx, fy + 0.85, fz);
-    camera.position.set(fx + 14.5, 8.8, fz + 4.5);
+    freeCamera.setTarget(new BABYLON.Vector3(fx, fy + 0.85, fz));
+    freeCamera.setPosition(new BABYLON.Vector3(fx + 14.5, 8.8, fz + 4.5));
   }
 
   if (!opts.preserveReelPlayback) {
@@ -569,19 +598,29 @@ function loadScenario(index, opts = {}) {
 }
 
 // 7. Camera Mode Controller
-const desiredCamPos = new THREE.Vector3();
-const desiredCamTarget = new THREE.Vector3();
-
 function setCameraMode(mode, resetView = true) {
   cameraMode = mode;
   snapCameraNextFrame = true;
   document.querySelectorAll('.cam-btn').forEach((b) => {
     b.classList.toggle('active', b.dataset.cam === mode);
   });
-  controls.enabled = mode === 'free';
-  if (mode === 'free' && resetView) {
-    const [fx, fy, fz] = SCENARIOS[activeScenarioIndex].defaultFocus;
-    controls.target.set(fx, fy + 0.9, fz);
+
+  if (mode === 'free') {
+    if (resetView) {
+      const [fx, fy, fz] =
+        activeMocapMode === 'tactical' ? SCENARIOS[activeScenarioIndex].defaultFocus : [0, 0, 8.0];
+      freeCamera.setTarget(new BABYLON.Vector3(fx, fy + 0.92, fz));
+      freeCamera.setPosition(new BABYLON.Vector3(fx + 3.2, fy + 1.65, fz + 3.6));
+    } else {
+      freeCamera.setTarget(currentCamTarget.clone());
+      freeCamera.setPosition(mainCamera.position.clone());
+    }
+    freeCamera.fov = mainCamera.fov;
+    scene.activeCamera = freeCamera;
+    freeCamera.attachControl(canvas, true);
+  } else {
+    freeCamera.detachControl();
+    scene.activeCamera = mainCamera;
   }
 }
 
@@ -593,8 +632,7 @@ document.querySelectorAll('.cam-btn').forEach((btn) => {
 function getActiveDurationSec() {
   if (activeMocapMode !== 'tactical') {
     const clipId = activeMocapMode.replace(/^lib:/, '');
-    const clip = getMocapClip(clipId);
-    return clip ? Math.max(0.2, clip.duration) : 2.4;
+    return Math.max(0.2, getMocapDuration(clipId));
   }
   return SCENARIOS[activeScenarioIndex].durationSec;
 }
@@ -635,7 +673,7 @@ function seekToSecond(targetSec, pausePlayback = true) {
   if (activeMocapMode === 'tactical' && syncVideoTo3D) {
     if (activeVideoSource === 'zhibo8' && zhibo8ClipEl.readyState >= 1) {
       if (activeSubClipIndex === 0) {
-        zhibo8ClipEl.currentTime = THREE.MathUtils.clamp(currentSec, 0, Math.max(0, zhibo8ClipEl.duration - 0.01));
+        zhibo8ClipEl.currentTime = clamp(currentSec, 0, Math.max(0, zhibo8ClipEl.duration - 0.01));
       } else if (zhibo8ClipEl.duration > 0.1) {
         zhibo8ClipEl.currentTime = (currentSec / dur) * zhibo8ClipEl.duration;
       }
@@ -682,10 +720,14 @@ document.querySelectorAll('.speed-btn').forEach((btn) => {
   });
 });
 
-function toggleSkeletonXray() {
-  overlaysConfig.showSkeleton = !overlaysConfig.showSkeleton;
+function setSkeletonXray(enabled) {
+  overlaysConfig.showSkeleton = Boolean(enabled);
   btnXrayTopEl.classList.toggle('active', overlaysConfig.showSkeleton);
   btnToggleSkeletonEl.classList.toggle('active', overlaysConfig.showSkeleton);
+}
+
+function toggleSkeletonXray() {
+  setSkeletonXray(!overlaysConfig.showSkeleton);
 }
 btnXrayTopEl.addEventListener('click', toggleSkeletonXray);
 btnToggleSkeletonEl.addEventListener('click', toggleSkeletonXray);
@@ -724,60 +766,63 @@ window.addEventListener('keydown', (e) => {
 });
 
 // 9. Frame Evaluation & Render Loop
-const prevBallPos = new THREE.Vector3();
-const clock = new THREE.Clock();
+const prevBallPos = new BABYLON.Vector3();
 
 function updateRigTelemetryUI(playerModel) {
   if (!playerModel || !playerModel.telemetry) return;
   const tel = playerModel.telemetry;
-  rigBoneCountEl.textContent = `${tel.boneCount} Bones (含30指节) · PBR人像`;
+  rigBoneCountEl.textContent = `Babylon PBR · ${tel.boneCount} Bones (一体成型)`;
   rigActiveClipEl.textContent = tel.activeClip;
   rigActiveFootEl.textContent = tel.activeFoot;
   rigJointAnglesEl.textContent = `Knee ${tel.kneeFlexDeg}° · Ankle ${tel.anklePitchDeg}°/${tel.ankleEversionDeg}°`;
 }
 
-function applyCameraSmoothing(targetFov = 35) {
-  if (Math.abs(camera.fov - targetFov) > 0.05) {
-    camera.fov = snapCameraNextFrame ? targetFov : THREE.MathUtils.lerp(camera.fov, targetFov, 0.12);
-    camera.updateProjectionMatrix();
+function applyCameraSmoothing(targetFovDeg = 35) {
+  const targetFovRad = (targetFovDeg * Math.PI) / 180;
+  if (Math.abs(mainCamera.fov - targetFovRad) > 0.0005) {
+    mainCamera.fov = snapCameraNextFrame ? targetFovRad : lerp(mainCamera.fov, targetFovRad, 0.14);
   }
   if (snapCameraNextFrame) {
-    camera.position.copy(desiredCamPos);
-    controls.target.copy(desiredCamTarget);
+    mainCamera.position.copyFrom(desiredCamPos);
+    currentCamTarget.copyFrom(desiredCamTarget);
     snapCameraNextFrame = false;
   } else {
-    camera.position.lerp(desiredCamPos, 0.12);
-    controls.target.lerp(desiredCamTarget, 0.14);
+    BABYLON.Vector3.LerpToRef(mainCamera.position, desiredCamPos, 0.14, mainCamera.position);
+    BABYLON.Vector3.LerpToRef(currentCamTarget, desiredCamTarget, 0.16, currentCamTarget);
   }
-  camera.lookAt(controls.target);
+  mainCamera.setTarget(currentCamTarget);
 }
 
 function evaluateFrame(dt) {
-  // Mode A: 28-Clip Common Football Optical Mocap Library Inspector
+  // Mode A: 32-Clip Official Mixamo《Soccer Pack》Showcase Inspector
   if (activeMocapMode !== 'tactical') {
     const clipId = activeMocapMode.replace(/^lib:/, '');
     const meta = getMocapMeta(clipId);
     const dur = getActiveDurationSec();
 
-    if (isPlaying) {
+    if (isPlaying && dt > 0) {
       currentSec = (currentSec + dt * playbackSpeed) % dur;
     }
 
     sliderEl.value = Math.round((currentSec / dur) * 1000);
     timeReadoutEl.textContent = `${currentSec.toFixed(2)}s / ${dur.toFixed(2)}s`;
 
-    phaseBadgeEl.textContent = `公共动捕库 · ${meta.category}`;
-    phaseDescEl.textContent = `${meta.label} —— 67骨骼全身光学动作捕捉原片检阅（支持 0.25x 慢放、±1帧步进与 [X] 键骨骼透视）。`;
+    phaseBadgeEl.textContent = `Mixamo《Soccer Pack》 · ${meta.category}`;
+    phaseDescEl.textContent = `${meta.label} —— 一体成型 65 骨零破洞模型 + 官方动作捕捉原片检阅（支持 0.25x 慢放、±1帧步进与 [X] 骨骼透视）。`;
     if (hudMocapBadgeEl) {
-      hudMocapBadgeEl.textContent = `Mocap Clip: ${clipId} (100%) · Frame ${Math.round(currentSec * 60)}/${Math.round(dur * 60)}`;
+      hudMocapBadgeEl.textContent = `Mixamo Clip: ${clipId} (100%) · Frame ${Math.round(currentSec * 60)}/${Math.round(dur * 60)}`;
     }
 
     matchBall.position.set(0.18, 0.115, 8.38);
-    overlaysConfig.cameraMode = 'ankle';
+    overlaysConfig.cameraMode = cameraMode;
 
     if (showcasePedriActor) {
-      const isKickOrPass = clipId.includes('pass') || clipId.includes('through') || clipId.includes('shot') || clipId.includes('kick');
-      updatePlayerPose(
+      const isKickOrPass =
+        clipId.includes('pass') ||
+        clipId.includes('through') ||
+        clipId.includes('shot') ||
+        clipId.includes('kick');
+      updateBabylonPlayerPose(
         showcasePedriActor,
         {
           tSec: currentSec,
@@ -794,8 +839,7 @@ function evaluateFrame(dt) {
               ? { foot: 'R', type: 'inside', weight: 0.7 }
               : null
         },
-        overlaysConfig,
-        matchBall.position
+        overlaysConfig
       );
       updateRigTelemetryUI(showcasePedriActor);
     }
@@ -809,14 +853,10 @@ function evaluateFrame(dt) {
         desiredCamPos.set(0.01, 12.0, 8.8);
       } else {
         desiredCamTarget.set(0, 0.94, 8.0);
-        desiredCamPos.set(2.95, 1.72, 11.2);
+        desiredCamPos.set(2.85, 1.65, 11.1);
       }
       applyCameraSmoothing(34);
-    } else {
-      controls.update();
     }
-
-    renderer.render(scene, camera);
     return;
   }
 
@@ -833,14 +873,13 @@ function evaluateFrame(dt) {
         dur = sc.durationSec;
       }
     } else if (activeSubClipIndex === 0) {
-      // Exact 1:1 Master Clock Lock to primary Zhibo8 MP4 clip!
       if (isPlaying && !zhibo8ClipEl.paused) {
-        currentSec = THREE.MathUtils.clamp(zhibo8ClipEl.currentTime, 0, dur);
+        currentSec = clamp(zhibo8ClipEl.currentTime, 0, dur);
       }
     } else if (zhibo8ClipEl.duration > 0.1 && isPlaying && !zhibo8ClipEl.paused) {
       currentSec = (zhibo8ClipEl.currentTime / zhibo8ClipEl.duration) * dur;
     }
-  } else if (isPlaying) {
+  } else if (isPlaying && dt > 0) {
     currentSec = (currentSec + dt * playbackSpeed) % dur;
   }
 
@@ -856,7 +895,7 @@ function evaluateFrame(dt) {
   });
 
   activeRibbons.forEach((r) => {
-    r.visible = overlaysConfig.showTrajectories;
+    r.setEnabled(Boolean(overlaysConfig.showTrajectories));
   });
 
   matchBall.position.set(evalState.ballState.x, evalState.ballState.y ?? 0.115, evalState.ballState.z);
@@ -868,7 +907,7 @@ function evaluateFrame(dt) {
     matchBall.rotation.x -= ballMoveDist * 6.8;
     matchBall.rotation.z += ballMoveDist * 4.2;
   }
-  prevBallPos.copy(matchBall.position);
+  prevBallPos.copyFrom(matchBall.position);
 
   let pedriState = null;
   let pedriModel = null;
@@ -890,7 +929,7 @@ function evaluateFrame(dt) {
       if (d < minDefDist) minDefDist = d;
       st.shadowYaw = Math.atan2(pedriState.x - st.x, pedriState.z - st.z);
     }
-    updatePlayerPose(actorObj.model, st, overlaysConfig, matchBall.position);
+    updateBabylonPlayerPose(actorObj.model, st, overlaysConfig);
   });
 
   if (pedriModel) {
@@ -900,12 +939,11 @@ function evaluateFrame(dt) {
         syncVideoTo3D && videoReady && activeSubClipIndex === 0
           ? `视频主时钟 1:1 锁定 (${currentSec.toFixed(2)}s)`
           : `时间轴 (${currentSec.toFixed(2)}s)`;
-      hudMocapBadgeEl.textContent = `HyperMotion: ${pedriModel.activeMocapDebug} · ${syncTag}`;
+      hudMocapBadgeEl.textContent = `Mixamo Soccer: ${pedriModel.activeMocapDebug} · ${syncTag}`;
     }
   }
 
-  // Spatial telemetry bars
-  const pressPct = Math.round(Math.max(8, Math.min(98, (1 - (minDefDist - 0.9) / 6.5) * 100)));
+  const pressPct = Math.round(clamp((1 - (minDefDist - 0.9) / 6.5) * 100, 8, 98));
   const decepRaw = pedriState
     ? Math.max(
         Math.abs(pedriState.leanRoll || 0) * 3.4,
@@ -914,9 +952,9 @@ function evaluateFrame(dt) {
         pedriState.ballTouch ? pedriState.ballTouch.weight * 0.92 : 0.2
       )
     : 0.3;
-  const decepPct = Math.round(Math.max(15, Math.min(99, decepRaw * 100)));
+  const decepPct = Math.round(clamp(decepRaw * 100, 15, 99));
   const sepMeters = minDefDist < 50 ? minDefDist.toFixed(2) : '4.50';
-  const sepPct = Math.round(Math.max(10, Math.min(100, (minDefDist / 5.5) * 100)));
+  const sepPct = Math.round(clamp((minDefDist / 5.5) * 100, 10, 100));
 
   barPressIntensity.style.width = `${pressPct}%`;
   valPressIntensity.textContent = `${pressPct}%`;
@@ -925,7 +963,6 @@ function evaluateFrame(dt) {
   barSeparation.style.width = `${sepPct}%`;
   valSeparation.textContent = `${sepMeters} m`;
 
-  // Camera framing matched 1:1 to Zhibo8 broadcast perspective (or user-selected tactical camera)
   if (cameraMode === 'broadcast') {
     const c = evalState.cam;
     desiredCamPos.set(c.pos[0], c.pos[1], c.pos[2]);
@@ -934,7 +971,7 @@ function evaluateFrame(dt) {
   } else if (cameraMode === 'pedri' && pedriState) {
     const behindX = pedriState.x - Math.sin(pedriState.yaw) * 4.4;
     const behindZ = pedriState.z - Math.cos(pedriState.yaw) * 4.4;
-    desiredCamPos.set(behindX, 2.3, behindZ);
+    desiredCamPos.set(behindX, 2.25, behindZ);
     desiredCamTarget.set(
       pedriState.x + Math.sin(pedriState.yaw) * 3.5,
       1.05,
@@ -943,31 +980,119 @@ function evaluateFrame(dt) {
     applyCameraSmoothing(42);
   } else if (cameraMode === 'ankle' && pedriState) {
     desiredCamTarget.set(
-      THREE.MathUtils.lerp(pedriState.x, matchBall.position.x, 0.4),
-      0.52,
-      THREE.MathUtils.lerp(pedriState.z, matchBall.position.z, 0.4)
+      lerp(pedriState.x, matchBall.position.x, 0.4),
+      0.55,
+      lerp(pedriState.z, matchBall.position.z, 0.4)
     );
-    desiredCamPos.set(pedriState.x + 2.55, 0.98, pedriState.z + 1.65);
+    desiredCamPos.set(pedriState.x + 2.45, 0.98, pedriState.z + 1.65);
     applyCameraSmoothing(34);
   } else if (cameraMode === 'topdown' && pedriState) {
     desiredCamTarget.set(pedriState.x, 0.2, pedriState.z);
     desiredCamPos.set(pedriState.x + 0.5, 23.5, pedriState.z + 0.01);
     applyCameraSmoothing(40);
-  } else {
-    controls.update();
   }
-
-  renderer.render(scene, camera);
 }
 
-// 10. Boot Studio
+// 10. Boot Studio & Expose Deterministic Visual QA API
 buildScenarioSidebar();
 loadScenario(0);
 updatePlayButtonLabel();
 
-function animate() {
-  requestAnimationFrame(animate);
-  const dt = Math.min(clock.getDelta(), 0.05);
+let lastFrameMs = performance.now();
+engine.runRenderLoop(() => {
+  const nowMs = performance.now();
+  const dt = Math.min((nowMs - lastFrameMs) / 1000, 0.05);
+  lastFrameMs = nowMs;
   evaluateFrame(dt);
-}
-animate();
+  scene.render();
+});
+
+window.__STUDIO_DEBUG__ = {
+  waitReady: () => rigReadyPromise,
+  isReady: () => rigLoaded,
+  pauseRenderLoop: () => engine.stopRenderLoop(),
+  setSplitLayout: (split) => applySplitLayout(split),
+  setOverlays: (cfg) => {
+    Object.assign(overlaysConfig, cfg);
+    setSkeletonXray(overlaysConfig.showSkeleton);
+  },
+  async inspectScenario(scenarioIdx, sec, camMode = 'broadcast', customCam = null, showXray = false) {
+    await rigReadyPromise;
+    if (activeMocapMode !== 'tactical') {
+      setMocapMode('tactical');
+    }
+    if (activeScenarioIndex !== scenarioIdx) {
+      loadScenario(scenarioIdx);
+    }
+    setSkeletonXray(showXray);
+
+    // Wait until video metadata is ready if visible so video frame matches 1:1
+    if (splitLayout && zhibo8ClipEl.src) {
+      await new Promise((resolve) => {
+        if (zhibo8ClipEl.readyState >= 2) return resolve();
+        const onReady = () => resolve();
+        zhibo8ClipEl.addEventListener('loadeddata', onReady, { once: true });
+        setTimeout(resolve, 2000);
+      });
+    }
+
+    seekToSecond(sec, true);
+    if (splitLayout && zhibo8ClipEl.readyState >= 1) {
+      await new Promise((resolve) => {
+        if (!zhibo8ClipEl.seeking) return setTimeout(resolve, 120);
+        zhibo8ClipEl.addEventListener('seeked', () => setTimeout(resolve, 80), { once: true });
+        setTimeout(resolve, 800);
+      });
+    }
+
+    if (customCam) {
+      setCameraMode('free', false);
+      freeCamera.fov = ((customCam.fovDeg || 30) * Math.PI) / 180;
+      freeCamera.setTarget(new BABYLON.Vector3(...customCam.target));
+      freeCamera.setPosition(new BABYLON.Vector3(...customCam.pos));
+    } else {
+      setCameraMode(camMode, false);
+      snapCameraNextFrame = true;
+    }
+
+    evaluateFrame(0);
+    await scene.whenReadyAsync(true);
+    scene.render();
+    scene.render();
+    const pedriObj = activeActors.find((a) => a.def.role === 'pedri');
+    return {
+      scenario: SCENARIOS[activeScenarioIndex].id,
+      currentSec,
+      videoTime: zhibo8ClipEl.currentTime,
+      actorCount: activeActors.length,
+      pedriTelemetry: pedriObj ? pedriObj.model.telemetry : null
+    };
+  },
+  async inspectMocapClip(clipId, sec, customCam = null, showXray = false, showLabels = false) {
+    await rigReadyPromise;
+    setMocapMode(`lib:${clipId}`);
+    setSkeletonXray(showXray);
+    overlaysConfig.showLabels = showLabels;
+    seekToSecond(sec, true);
+
+    if (customCam) {
+      setCameraMode('free', false);
+      freeCamera.fov = ((customCam.fovDeg || 28) * Math.PI) / 180;
+      freeCamera.setTarget(new BABYLON.Vector3(...customCam.target));
+      freeCamera.setPosition(new BABYLON.Vector3(...customCam.pos));
+    } else {
+      setCameraMode('broadcast', false);
+      snapCameraNextFrame = true;
+    }
+
+    evaluateFrame(0);
+    await scene.whenReadyAsync(true);
+    scene.render();
+    scene.render();
+    return {
+      clipId,
+      currentSec,
+      telemetry: showcasePedriActor ? showcasePedriActor.telemetry : null
+    };
+  }
+};

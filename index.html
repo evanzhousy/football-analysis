@@ -3,20 +3,14 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>佩德里中场抗逼抢 · FIFA HyperMotion 写实球员 × 28组公共光学动捕库 × 实况1:1帧同步</title>
+  <title>佩德里中场抗逼抢 · Babylon.js 游戏引擎 × Mixamo 官方足球动捕库 × 实况1:1帧同步</title>
   <meta
     name="description"
-    content="基于67骨骼PBR写实足球运动员建模、28组公共光学动作捕捉混合库、双骨解析足踝IK与直播吧实况视频主时钟1:1零漂移同步的佩德里抗逼抢3D实验室。"
+    content="基于成熟 Web 游戏引擎 Babylon.js 7.54、Adobe Mixamo 一体成型零破洞标准运动员模型、32组官方《Soccer Pack》足球动捕库与直播吧实况视频主时钟1:1同步的佩德里抗逼抢实验室。"
   />
   <link rel="stylesheet" href="./index.css" />
-  <script type="importmap">
-    {
-      "imports": {
-        "three": "./vendor/three/build/three.module.js",
-        "three/addons/": "./vendor/three/examples/jsm/"
-      }
-    }
-  </script>
+  <script src="./vendor/babylon/babylon.js"></script>
+  <script src="./vendor/babylon/babylonjs.loaders.min.js"></script>
 </head>
 <body>
   <div class="studio-shell">
@@ -25,16 +19,16 @@
       <div class="brand-group">
         <div class="jersey-crest" aria-hidden="true">8</div>
         <div class="brand-titles">
-          <h1>佩德里抗逼抢 · FIFA HyperMotion 写实球员 × 28组光学动捕库 × 1:1 帧同步</h1>
-          <p class="brand-subtitle">PBR五官皮肤/短袖印号/球袜战靴 + 28组公共足球光学动捕混合库 + 视频主时钟零漂移锁定</p>
+          <h1>佩德里抗逼抢 · Babylon.js 游戏引擎 × Mixamo 官方《Soccer Pack》动捕库 × 1:1 帧同步</h1>
+          <p class="brand-subtitle">一体成型零破洞 65 骨运动员模型 + 32 组 Mixamo 原生足球动捕 + 直播吧视频主时钟零漂移锁定</p>
         </div>
       </div>
 
-      <nav class="camera-toolbar" aria-label="公共光学动捕库、骨骼透视与 3D 摄像机切换">
-        <select id="mocap-mode-select" class="mocap-select" aria-label="切换8大视频1:1同步场景或单独检阅28组公共足球光学动捕库">
+      <nav class="camera-toolbar" aria-label="Mixamo官方足球动捕库、骨骼透视与 3D 摄像机切换">
+        <select id="mocap-mode-select" class="mocap-select" aria-label="切换8大视频1:1同步场景或单独检阅32组Mixamo官方足球动捕库">
           <option value="tactical">⚽ 实战视频 1:1 帧同步模式 (8大直播吧切片)</option>
         </select>
-        <button id="btn-xray-top" class="toggle-chip" type="button">67骨骼透视(X-Ray)</button>
+        <button id="btn-xray-top" class="toggle-chip" type="button">65骨骼透视(X-Ray)</button>
         <button id="btn-layout-split" class="toggle-chip active" type="button">实况视频+3D同屏</button>
         <span class="toolbar-label" style="margin-left:4px;">机位</span>
         <button id="cam-broadcast" class="cam-btn active" data-cam="broadcast" type="button">转播对齐</button>
@@ -101,7 +95,7 @@
           <div id="local-video-box" class="local-video-loader" style="display:none;">
             <video id="local-video-el" controls playsinline loop style="display:none;"></video>
             <div id="local-video-prompt">
-              <p style="margin-bottom:8px;">导入其他本地比赛片段（MP4 / WebM），即可与右侧 67 骨骼模型同步 0.25x/0.5x 慢速播放对比：</p>
+              <p style="margin-bottom:8px;">导入其他本地比赛片段（MP4 / WebM），即可与右侧 Babylon.js 65 骨标准球员同步 0.25x/0.5x 慢速播放对比：</p>
               <label class="file-upload-label" for="local-video-input">选择本地比赛视频文件</label>
               <input id="local-video-input" type="file" accept="video/*" style="display:none;" />
             </div>
@@ -121,7 +115,7 @@
         </div>
       </section>
 
-      <!-- Three.js 3D Modeling Pane -->
+      <!-- Babylon.js 3D Engine Pane -->
       <div class="three-pane-wrap">
         <div id="three-canvas-container"></div>
 
@@ -129,16 +123,16 @@
           <div class="phase-callout-box">
             <div class="phase-step-row">
               <span id="live-phase-badge" class="phase-badge">阶段1</span>
-              <span id="live-match-source" class="match-source-pill">67骨PBR写实球员 + 28组光学动捕库加载中...</span>
+              <span id="live-match-source" class="match-source-pill">Babylon.js 一体成型 65 骨球员 + 32 组 Mixamo《Soccer Pack》加载中...</span>
             </div>
             <p id="live-phase-desc" class="phase-live-text"></p>
-            <div id="hud-mocap-badge" class="hud-mocap-pill">HyperMotion: 初始化 28 组公共足球光学动捕库...</div>
+            <div id="hud-mocap-badge" class="hud-mocap-pill">Mixamo Soccer Pack: 初始化 32 组官方足球动捕库...</div>
           </div>
 
           <div class="legend-box" aria-hidden="true">
-            <div class="legend-row"><span class="swatch" style="background:#facc15;"></span>#8 佩德里 (PBR写实球员)</div>
-            <div class="legend-row"><span class="swatch" style="background:#34d399;"></span>触球足踝表面 IK 锁死</div>
-            <div class="legend-row"><span class="swatch" style="background:#ef4444;"></span>对手逼抢 & 压迫阴影</div>
+            <div class="legend-row"><span class="swatch" style="background:#facc15;"></span>#8 佩德里 (一体成型零破洞)</div>
+            <div class="legend-row"><span class="swatch" style="background:#34d399;"></span>Mixamo 原生足球动捕姿态</div>
+            <div class="legend-row"><span class="swatch" style="background:#ef4444;"></span>对手逼抢 & 滑铲封堵</div>
           </div>
         </div>
       </div>
@@ -184,24 +178,24 @@
         <p id="insp-pressure" class="inspector-subtitle"></p>
       </div>
 
-      <!-- NEW: Live 67-Bone & Ankle Joint Telemetry -->
+      <!-- Live 65-Bone Mixamo Rig Telemetry -->
       <div class="inspector-section">
-        <span class="section-eyebrow">骨骼蒙皮与足踝 IK 实时遥测 (67-Bone Rig)</span>
+        <span class="section-eyebrow">一体成型蒙皮与官方动捕遥测 (65-Bone Mixamo)</span>
         <div class="rig-telemetry-box">
           <div class="rig-telemetry-line">
-            <span class="rig-telemetry-key">骨骼与蒙皮</span>
-            <span id="rig-bone-count" class="rig-telemetry-val">67 Bones · 28.3k Verts</span>
+            <span class="rig-telemetry-key">引擎与网格</span>
+            <span id="rig-bone-count" class="rig-telemetry-val">Babylon PBR · 65 Bones</span>
           </div>
           <div class="rig-telemetry-line">
-            <span class="rig-telemetry-key">动捕混合通道</span>
-            <span id="rig-active-clip" class="rig-telemetry-val">Mocap + Ankle IK</span>
+            <span class="rig-telemetry-key">Mixamo 动作轨</span>
+            <span id="rig-active-clip" class="rig-telemetry-val">idle_ready</span>
           </div>
           <div class="rig-telemetry-line">
             <span class="rig-telemetry-key">触球足踝状态</span>
-            <span id="rig-active-foot" class="rig-telemetry-val" style="color:var(--accent-gold);">双脚动态支撑</span>
+            <span id="rig-active-foot" class="rig-telemetry-val" style="color:var(--accent-gold);">双脚动态盘带支撑</span>
           </div>
           <div class="rig-telemetry-line">
-            <span class="rig-telemetry-key">膝屈曲 / 踝背屈·外翻</span>
+            <span class="rig-telemetry-key">膝屈曲 / 踝俯仰·内外翻</span>
             <span id="rig-joint-angles" class="rig-telemetry-val">Knee 18° · Ankle 0°/0°</span>
           </div>
         </div>
@@ -272,7 +266,7 @@
       <div class="inspector-section">
         <span class="section-eyebrow">3D 骨骼与战术辅助图层</span>
         <div class="overlay-toggles">
-          <button id="toggle-skeleton" class="toggle-chip" type="button">67骨骼透视(X-Ray)</button>
+          <button id="toggle-skeleton" class="toggle-chip" type="button">65骨骼透视(X-Ray)</button>
           <button id="toggle-scan" class="toggle-chip active" type="button">360° 扫描视野锥</button>
           <button id="toggle-shadow" class="toggle-chip active" type="button">防守压迫阴影</button>
           <button id="toggle-traj" class="toggle-chip active" type="button">跑位与失位轨迹</button>
