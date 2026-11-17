@@ -1064,13 +1064,19 @@ function evaluateFrame(dt) {
     );
     applyCameraSmoothing(42);
   } else if (cameraMode === 'ankle' && pedriState) {
-    desiredCamTarget.set(
-      lerp(pedriState.x, matchBall.position.x, 0.4),
-      0.55,
-      lerp(pedriState.z, matchBall.position.z, 0.4)
+    const ballDist = Math.hypot(
+      matchBall.position.x - pedriState.x,
+      matchBall.position.z - pedriState.z
     );
-    desiredCamPos.set(pedriState.x + 2.45, 0.98, pedriState.z + 1.65);
-    applyCameraSmoothing(34);
+    const wBall = ballDist < 2.4 ? 0.35 * (1 - ballDist / 2.4) : 0;
+    const sideSign = pedriState.x < -12 ? 1 : pedriState.x > 16 ? -1 : 1;
+    desiredCamTarget.set(
+      lerp(pedriState.x, matchBall.position.x, wBall),
+      0.68,
+      lerp(pedriState.z, matchBall.position.z, wBall)
+    );
+    desiredCamPos.set(pedriState.x + sideSign * 2.65, 1.06, pedriState.z + 1.65);
+    applyCameraSmoothing(35);
   } else if (cameraMode === 'topdown' && pedriState) {
     desiredCamTarget.set(pedriState.x, 0.2, pedriState.z);
     desiredCamPos.set(pedriState.x + 0.5, 23.5, pedriState.z + 0.01);
