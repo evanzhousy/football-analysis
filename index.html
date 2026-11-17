@@ -3,10 +3,10 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>佩德里中场抗逼抢 · 67骨骼蒙皮 × 120Hz动捕 × 真实视频同屏战术实验室</title>
+  <title>佩德里中场抗逼抢 · FIFA HyperMotion 写实球员 × 28组公共光学动捕库 × 实况1:1帧同步</title>
   <meta
     name="description"
-    content="基于 Mixamo 67骨骼 SkinnedMesh 蒙皮、双骨解析足踝 IK、CMU 120Hz 光学足球动捕与真实比赛视频的佩德里中场抗逼抢 3D 实验室。"
+    content="基于67骨骼PBR写实足球运动员建模、28组公共光学动作捕捉混合库、双骨解析足踝IK与直播吧实况视频主时钟1:1零漂移同步的佩德里抗逼抢3D实验室。"
   />
   <link rel="stylesheet" href="./index.css" />
   <script type="importmap">
@@ -25,22 +25,19 @@
       <div class="brand-group">
         <div class="jersey-crest" aria-hidden="true">8</div>
         <div class="brand-titles">
-          <h1>佩德里抗逼抢 · 67骨骼蒙皮 × 足踝IK × 真实视频 3D 实验室</h1>
-          <p class="brand-subtitle">Mixamo 67骨 SkinnedMesh + 手臂/20指节/足踝IK + CMU 120Hz 光学动捕 × 实况同屏</p>
+          <h1>佩德里抗逼抢 · FIFA HyperMotion 写实球员 × 28组光学动捕库 × 1:1 帧同步</h1>
+          <p class="brand-subtitle">PBR五官皮肤/短袖印号/球袜战靴 + 28组公共足球光学动捕混合库 + 视频主时钟零漂移锁定</p>
         </div>
       </div>
 
-      <nav class="camera-toolbar" aria-label="动捕引擎、骨骼透视与 3D 摄像机切换">
-        <select id="mocap-mode-select" class="mocap-select" aria-label="切换骨骼驱动模式或 120Hz 光学动捕原片">
-          <option value="tactical">模式：8大战术场景 (67骨骼 + 动捕混合 + 足踝IK)</option>
-          <option value="cmu-10-01">CMU 10_01 · 120Hz 光学动捕原片：助跑脚背抽射</option>
-          <option value="cmu-10-05">CMU 10_05 · 120Hz 光学动捕原片：碎步调整与击球</option>
-          <option value="cmu-11-01">CMU 11_01 · 120Hz 光学动捕原片：沉髋摆臂射门</option>
+      <nav class="camera-toolbar" aria-label="公共光学动捕库、骨骼透视与 3D 摄像机切换">
+        <select id="mocap-mode-select" class="mocap-select" aria-label="切换8大视频1:1同步场景或单独检阅28组公共足球光学动捕库">
+          <option value="tactical">⚽ 实战视频 1:1 帧同步模式 (8大直播吧切片)</option>
         </select>
         <button id="btn-xray-top" class="toggle-chip" type="button">67骨骼透视(X-Ray)</button>
         <button id="btn-layout-split" class="toggle-chip active" type="button">实况视频+3D同屏</button>
         <span class="toolbar-label" style="margin-left:4px;">机位</span>
-        <button id="cam-broadcast" class="cam-btn active" data-cam="broadcast" type="button">转播</button>
+        <button id="cam-broadcast" class="cam-btn active" data-cam="broadcast" type="button">转播对齐</button>
         <button id="cam-pedri" class="cam-btn" data-cam="pedri" type="button">肩后</button>
         <button id="cam-ankle" class="cam-btn" data-cam="ankle" type="button">足踝特写</button>
         <button id="cam-topdown" class="cam-btn" data-cam="topdown" type="button">俯视</button>
@@ -132,14 +129,15 @@
           <div class="phase-callout-box">
             <div class="phase-step-row">
               <span id="live-phase-badge" class="phase-badge">阶段1</span>
-              <span id="live-match-source" class="match-source-pill">67骨骼蒙皮加载中...</span>
+              <span id="live-match-source" class="match-source-pill">67骨PBR写实球员 + 28组光学动捕库加载中...</span>
             </div>
             <p id="live-phase-desc" class="phase-live-text"></p>
+            <div id="hud-mocap-badge" class="hud-mocap-pill">HyperMotion: 初始化 28 组公共足球光学动捕库...</div>
           </div>
 
           <div class="legend-box" aria-hidden="true">
-            <div class="legend-row"><span class="swatch" style="background:#facc15;"></span>#8 佩德里 (67骨蒙皮)</div>
-            <div class="legend-row"><span class="swatch" style="background:#34d399;"></span>主动触球足踝 IK 锚点</div>
+            <div class="legend-row"><span class="swatch" style="background:#facc15;"></span>#8 佩德里 (PBR写实球员)</div>
+            <div class="legend-row"><span class="swatch" style="background:#34d399;"></span>触球足踝表面 IK 锁死</div>
             <div class="legend-row"><span class="swatch" style="background:#ef4444;"></span>对手逼抢 & 压迫阴影</div>
           </div>
         </div>
@@ -151,7 +149,11 @@
       <div id="phase-pills-row" class="phase-pills-row"></div>
 
       <div class="transport-controls-row">
-        <button id="btn-play-toggle" class="play-btn" type="button">暂停 ❚❚</button>
+        <div class="transport-btn-cluster">
+          <button id="btn-step-prev" class="step-frame-btn" type="button" title="后退1帧 (-0.04s)，快捷键 ←">⏮ -1帧</button>
+          <button id="btn-play-toggle" class="play-btn" type="button">暂停 ❚❚</button>
+          <button id="btn-step-next" class="step-frame-btn" type="button" title="前进1帧 (+0.04s)，快捷键 →">+1帧 ⏭</button>
+        </div>
 
         <div class="scrubber-wrap">
           <input
@@ -162,7 +164,7 @@
             value="0"
             aria-label="动作进度条"
           />
-          <span id="time-readout" class="time-readout">0.0s</span>
+          <span id="time-readout" class="time-readout">0.00s / 4.00s</span>
         </div>
 
         <div class="speed-group" role="group" aria-label="回放倍速">

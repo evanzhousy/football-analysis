@@ -5,22 +5,39 @@
 export const MASTER_ZHIBO8_REEL = {
   src: './assets/videos/zhibo8_pedri_all_8_clips.mp4',
   filename: 'zhibo8_pedri_all_8_clips.mp4',
-  title: '【直播吧回放剪辑总集锦】佩德里 8 大中场逼抢摆脱过人全收录 (62s 连播)',
-  sourceUrl: 'https://www.zhibo8.com/zuqiu/luxiang.htm'
+  title: '【直播吧回放剪辑总集锦】佩德里 8 大中场抗逼抢过人全收录 (55.5s 无切镜 1:1 自动联动)',
+  sourceUrl: 'https://www.zhibo8.com/zuqiu/luxiang.htm',
+  segments: [
+    { scenarioIndex: 0, start: 0.0, end: 4.0 },
+    { scenarioIndex: 1, start: 4.0, end: 10.5 },
+    { scenarioIndex: 2, start: 10.5, end: 16.1 },
+    { scenarioIndex: 3, start: 16.1, end: 22.534 },
+    { scenarioIndex: 4, start: 22.534, end: 33.068 },
+    { scenarioIndex: 5, start: 33.068, end: 41.902 },
+    { scenarioIndex: 6, start: 41.902, end: 47.702 },
+    { scenarioIndex: 7, start: 47.702, end: 55.536 }
+  ]
 };
 
 export const SCENARIO_VIDEOS = {
   'back-tight-half-turn': {
     zhibo8Clips: [
       {
-        label: '直播吧剪辑①：vs马略卡 背身顺球半转身特写',
+        label: '直播吧剪辑①：vs马略卡 背身半转身 (近景1:1)',
         src: './assets/videos/s1_zhibo8_half_turn.mp4',
         filename: 's1_zhibo8_pedri_half_turn.mp4',
-        title: '【直播吧回放剪辑】2025-04-23 巴萨vs马略卡：#8佩德里背身精妙顺球半转身摆脱 (双机位特写)',
+        title: '【直播吧回放剪辑】2025-04-23 巴萨vs马略卡：#8佩德里背身精妙顺球半转身摆脱 (4.00s 单镜特写)',
         pageUrl: 'https://news.zhibo8.com/zuqiu/2025-04-23/68080aa5d984enative.htm'
       },
       {
-        label: '直播吧剪辑②：国家德比 背身摆脱贝林厄姆',
+        label: '直播吧剪辑②：vs马略卡 侧面慢镜第二视角',
+        src: './assets/videos/s1_angle2_half_turn.mp4',
+        filename: 's1_angle2_pedri_half_turn.mp4',
+        title: '【直播吧回放剪辑】2025-04-23 巴萨vs马略卡：第二视角特写拆解脚内侧缓冲顺球转身',
+        pageUrl: 'https://news.zhibo8.com/zuqiu/2025-04-23/68080aa5d984enative.htm'
+      },
+      {
+        label: '直播吧剪辑③：国家德比 背身摆脱贝林厄姆',
         src: './assets/videos/s1_alt_bellingham_turn.mp4',
         filename: 's1_zhibo8_pedri_vs_bellingham.mp4',
         title: '【直播吧回放剪辑】2024-10-27 皇马0-4巴萨：佩德里中圈背身沉肩转圈摆脱贝林厄姆紧逼',

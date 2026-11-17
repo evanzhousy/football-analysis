@@ -8,12 +8,8 @@ import {
   updatePlayerPose,
   createTrajectoryRibbon
 } from './player3d.js';
-import {
-  CMU_SOCCER_MOCAPS,
-  loadCmuSoccerBvh,
-  evaluateCmuMocapOnPlayer
-} from './mocapBvh.js';
-import { SCENARIOS, sampleTrack } from './scenarios.js';
+import { MOCAP_CATALOG, getMocapClip, getMocapMeta } from './mocapLibrary.js';
+import { SCENARIOS, evaluateScenarioAtTime } from './scenarios.js';
 import { SCENARIO_VIDEOS, MASTER_ZHIBO8_REEL } from './videos.js';
 
 const container = document.getElementById('three-canvas-container');
@@ -22,15 +18,15 @@ const viewportStageEl = document.getElementById('viewport-stage');
 // 1. Initialize Three.js WebGLRenderer, Scene & Camera
 const scene = new THREE.Scene();
 scene.background = new THREE.Color(0x090f16);
-scene.fog = new THREE.FogExp2(0x090f16, 0.0085);
+scene.fog = new THREE.FogExp2(0x090f16, 0.0075);
 
 const camera = new THREE.PerspectiveCamera(
-  44,
+  35,
   Math.max(1, container.clientWidth) / Math.max(1, container.clientHeight),
   0.15,
   200
 );
-camera.position.set(0, 14, 24);
+camera.position.set(20, 9.5, 8);
 
 const renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance' });
 renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
@@ -45,8 +41,9 @@ const controls = new OrbitControls(camera, renderer.domElement);
 controls.enableDamping = true;
 controls.dampingFactor = 0.07;
 controls.maxPolarAngle = Math.PI * 0.49;
-controls.minDistance = 1.6;
+controls.minDistance = 1.4;
 controls.maxDistance = 58;
+controls.enabled = false;
 
 renderer.domElement.addEventListener('pointerdown', () => {
   if (cameraMode !== 'free') {
@@ -73,27 +70,26 @@ scene.add(matchBall);
 const scenarioGroup = new THREE.Group();
 scene.add(scenarioGroup);
 
-const cmuMocapGroup = new THREE.Group();
-cmuMocapGroup.visible = false;
-scene.add(cmuMocapGroup);
+const mocapShowcaseGroup = new THREE.Group();
+mocapShowcaseGroup.visible = false;
+scene.add(mocapShowcaseGroup);
 
 let activeScenarioIndex = 0;
 let activeActors = [];
 let activeRibbons = [];
+let snapCameraNextFrame = true;
 
-// Playback, Mocap Mode, Video Deck & Overlay State
+// Playback, Master Video Clock & Mocap Library State
 let isPlaying = true;
 let playbackSpeed = 0.5;
-let timelineT = 0.0;
-const LOOP_DURATION_SEC = 6.2;
+let currentSec = 0.0;
 let cameraMode = 'broadcast';
 let splitLayout = true;
 let activeVideoSource = 'zhibo8';
 let activeSubClipIndex = 0;
 let syncVideoTo3D = true;
-let activeMocapMode = 'tactical'; // 'tactical' | 'cmu-10-01' | 'cmu-10-05' | 'cmu-11-01'
-let activeCmuBvhData = null;
-let cmuPedriActor = null;
+let activeMocapMode = 'tactical'; // 'tactical' | 'lib:<clipId>'
+let showcasePedriActor = null;
 
 const overlaysConfig = {
   showSkeleton: false,
@@ -108,8 +104,11 @@ const scenarioListEl = document.getElementById('scenario-list');
 const phaseBadgeEl = document.getElementById('live-phase-badge');
 const matchSourceEl = document.getElementById('live-match-source');
 const phaseDescEl = document.getElementById('live-phase-desc');
+const hudMocapBadgeEl = document.getElementById('hud-mocap-badge');
 const phaseButtonsContainer = document.getElementById('phase-pills-row');
 const playBtnEl = document.getElementById('btn-play-toggle');
+const btnStepPrevEl = document.getElementById('btn-step-prev');
+const btnStepNextEl = document.getElementById('btn-step-next');
 const sliderEl = document.getElementById('timeline-slider');
 const timeReadoutEl = document.getElementById('time-readout');
 
@@ -158,18 +157,51 @@ const valDeception = document.getElementById('val-deception');
 const barSeparation = document.getElementById('bar-separation');
 const valSeparation = document.getElementById('val-separation');
 
-// Preload 67-bone Mixamo SkinnedMesh GLB & upgrade all actors as soon as ready
-preloadAthleteRig().then((gltf) => {
+// Populate 28-Clip Common Football Optical Mocap Library into #mocap-mode-select
+function buildMocapLibrarySelector() {
+  mocapModeSelectEl.innerHTML = '';
+
+  const optTactical = document.createElement('option');
+  optTactical.value = 'tactical';
+  optTactical.textContent = '⚽ 实战视频 1:1 帧同步模式 (8大直播吧切片)';
+  mocapModeSelectEl.appendChild(optTactical);
+
+  const byCat = new Map();
+  for (const item of MOCAP_CATALOG) {
+    if (!byCat.has(item.category)) byCat.set(item.category, []);
+    byCat.get(item.category).push(item);
+  }
+
+  for (const [catName, list] of byCat.entries()) {
+    const grp = document.createElement('optgroup');
+    grp.label = `公共光学动捕库 · ${catName} (${list.length}组)`;
+    for (const item of list) {
+      const opt = document.createElement('option');
+      opt.value = `lib:${item.id}`;
+      opt.textContent = `[${item.id}] ${item.label}`;
+      grp.appendChild(opt);
+    }
+    mocapModeSelectEl.appendChild(grp);
+  }
+}
+buildMocapLibrarySelector();
+
+// Preload Photorealistic 67-Bone Footballer GLB + Hair + All 28 Optical Mocap Clips
+preloadAthleteRig((done, total, entry) => {
+  if (hudMocapBadgeEl) {
+    hudMocapBadgeEl.textContent = `HyperMotion 动作库加载中: ${done}/${total} (${entry.id})...`;
+  }
+}).then(() => {
   activeActors.forEach((a) => {
-    attachRiggedSkinnedModel(a.model, gltf);
+    attachRiggedSkinnedModel(a.model);
     if (a.model.skeletonHelper && !a.model.skeletonHelper.parent) {
       scenarioGroup.add(a.model.skeletonHelper);
     }
   });
-  if (cmuPedriActor) {
-    attachRiggedSkinnedModel(cmuPedriActor, gltf);
-    if (cmuPedriActor.skeletonHelper && !cmuPedriActor.skeletonHelper.parent) {
-      cmuMocapGroup.add(cmuPedriActor.skeletonHelper);
+  if (showcasePedriActor) {
+    attachRiggedSkinnedModel(showcasePedriActor);
+    if (showcasePedriActor.skeletonHelper && !showcasePedriActor.skeletonHelper.parent) {
+      mocapShowcaseGroup.add(showcasePedriActor.skeletonHelper);
     }
   }
   if (activeMocapMode === 'tactical') {
@@ -177,18 +209,30 @@ preloadAthleteRig().then((gltf) => {
   }
 });
 
-// 3. Real Video Deck Controller (Zhibo8 Clipped MP4s + Master Reel + Bilibili + YouTube + Local)
-function loadZhibo8ClipElement(srcUrl, titleText, dlFilename, pageUrl) {
+// 3. Real Video Deck Controller (Master Clock Source when syncVideoTo3D === true)
+function loadZhibo8ClipElement(srcUrl, titleText, dlFilename, pageUrl, initialTimeSec = 0) {
   zhibo8ClipEl.style.display = 'block';
   videoIframeEl.style.display = 'none';
   videoIframeEl.src = 'about:blank';
   localVideoBoxEl.style.display = 'none';
 
-  if (zhibo8ClipEl.getAttribute('data-cur-src') !== srcUrl) {
+  const changedSrc = zhibo8ClipEl.getAttribute('data-cur-src') !== srcUrl;
+  if (changedSrc) {
     zhibo8ClipEl.setAttribute('data-cur-src', srcUrl);
     zhibo8ClipEl.src = srcUrl;
     zhibo8ClipEl.load();
+    zhibo8ClipEl.addEventListener(
+      'loadedmetadata',
+      () => {
+        if (initialTimeSec > 0 && initialTimeSec < zhibo8ClipEl.duration) {
+          zhibo8ClipEl.currentTime = initialTimeSec;
+        }
+        zhibo8ClipEl.playbackRate = syncVideoTo3D ? playbackSpeed : 1.0;
+      },
+      { once: true }
+    );
   }
+
   zhibo8ClipEl.playbackRate = syncVideoTo3D ? playbackSpeed : 1.0;
   if (isPlaying) {
     zhibo8ClipEl.play().catch(() => {});
@@ -202,6 +246,34 @@ function loadZhibo8ClipElement(srcUrl, titleText, dlFilename, pageUrl) {
   downloadZhibo8Mp4El.style.display = 'inline-flex';
   if (pageUrl) {
     extLinkZhibo8.href = pageUrl;
+  }
+}
+
+// Keep 3D locked even when user scrubs native <video> controls directly!
+zhibo8ClipEl.addEventListener('seeked', () => {
+  if (!syncVideoTo3D || activeMocapMode !== 'tactical') return;
+  if (activeVideoSource === 'zhibo8') {
+    const sc = SCENARIOS[activeScenarioIndex];
+    if (activeSubClipIndex === 0) {
+      currentSec = THREE.MathUtils.clamp(zhibo8ClipEl.currentTime, 0, sc.durationSec);
+    } else if (zhibo8ClipEl.duration > 0.1) {
+      currentSec = (zhibo8ClipEl.currentTime / zhibo8ClipEl.duration) * sc.durationSec;
+    }
+  } else if (activeVideoSource === 'reel') {
+    syncScenarioFromMasterReelTime(zhibo8ClipEl.currentTime);
+  }
+});
+
+function syncScenarioFromMasterReelTime(reelTime) {
+  const segs = MASTER_ZHIBO8_REEL.segments || [];
+  for (const seg of segs) {
+    if (reelTime >= seg.start && reelTime < seg.end) {
+      if (activeScenarioIndex !== seg.scenarioIndex) {
+        loadScenario(seg.scenarioIndex, { preserveReelPlayback: true });
+      }
+      currentSec = THREE.MathUtils.clamp(reelTime - seg.start, 0, SCENARIOS[seg.scenarioIndex].durationSec);
+      return;
+    }
   }
 }
 
@@ -221,7 +293,6 @@ function updateRealVideoDeck() {
     activeSubClipIndex = 0;
   }
 
-  // Render sub-clip selector buttons when in 'zhibo8' mode
   if (activeVideoSource === 'zhibo8') {
     zhibo8SubclipsBarEl.style.display = 'flex';
     zhibo8SubclipsBtnsEl.innerHTML = '';
@@ -232,6 +303,7 @@ function updateRealVideoDeck() {
       cBtn.textContent = clip.label;
       cBtn.addEventListener('click', () => {
         activeSubClipIndex = cIdx;
+        currentSec = 0;
         updateRealVideoDeck();
       });
       zhibo8SubclipsBtnsEl.appendChild(cBtn);
@@ -239,24 +311,27 @@ function updateRealVideoDeck() {
 
     const curClip = clips[activeSubClipIndex];
     if (curClip) {
-      loadZhibo8ClipElement(curClip.src, curClip.title, curClip.filename, curClip.pageUrl);
+      loadZhibo8ClipElement(curClip.src, curClip.title, curClip.filename, curClip.pageUrl, 0);
     }
     return;
   }
 
   if (activeVideoSource === 'reel') {
     zhibo8SubclipsBarEl.style.display = 'flex';
-    zhibo8SubclipsBtnsEl.innerHTML = '<span style="font-size:11px;color:var(--accent-gold);font-weight:600;">已加载 8 大场景直播吧回放连播合集</span>';
+    zhibo8SubclipsBtnsEl.innerHTML =
+      '<span style="font-size:11px;color:var(--accent-gold);font-weight:600;">55.5s 总集锦连播中 · 3D 场景将随视频自动切换 01→08 帧级联动</span>';
+    const seg = (MASTER_ZHIBO8_REEL.segments || []).find((s) => s.scenarioIndex === activeScenarioIndex);
     loadZhibo8ClipElement(
       MASTER_ZHIBO8_REEL.src,
       MASTER_ZHIBO8_REEL.title,
       MASTER_ZHIBO8_REEL.filename,
-      MASTER_ZHIBO8_REEL.sourceUrl
+      MASTER_ZHIBO8_REEL.sourceUrl,
+      seg ? seg.start : 0
     );
     return;
   }
 
-  // Hide Zhibo8 native video & subclip bar for external/local modes
+  // External / local video tabs
   zhibo8SubclipsBarEl.style.display = 'none';
   zhibo8ClipEl.pause();
   zhibo8ClipEl.style.display = 'none';
@@ -266,7 +341,7 @@ function updateRealVideoDeck() {
     videoIframeEl.style.display = 'none';
     videoIframeEl.src = 'about:blank';
     localVideoBoxEl.style.display = 'flex';
-    videoNowTitleEl.textContent = '本地实况视频 × 67骨骼模型同步慢放对比';
+    videoNowTitleEl.textContent = '本地实况视频 × 67骨写实球员同步慢放对比';
     localVideoEl.playbackRate = playbackSpeed;
   } else {
     localVideoBoxEl.style.display = 'none';
@@ -330,55 +405,47 @@ btnLayoutSplit.addEventListener('click', () => {
   viewportStageEl.classList.toggle('full3d-mode', !splitLayout);
 });
 
-// 4. Switch Between Tactical 67-Bone + IK Mode vs CMU 120Hz Optical Mocap BVH Mode
-async function setMocapMode(mode) {
+// 4. Switch Between 8-Scenario Video 1:1 Mode vs 28-Clip Public Optical Mocap Library Showcase
+function setMocapMode(mode) {
   activeMocapMode = mode;
   mocapModeSelectEl.value = mode;
-  timelineT = 0.0;
+  currentSec = 0.0;
+  snapCameraNextFrame = true;
 
   if (mode === 'tactical') {
-    cmuMocapGroup.visible = false;
+    mocapShowcaseGroup.visible = false;
     scenarioGroup.visible = true;
     loadScenario(activeScenarioIndex);
     return;
   }
 
-  // Activate CMU 120Hz Optical Soccer Mocap Showcase
+  // Atomic Mocap Library Clip Showcase ('lib:<clipId>')
+  const clipId = mode.replace(/^lib:/, '');
+  const meta = getMocapMeta(clipId);
+
   scenarioGroup.visible = false;
-  cmuMocapGroup.visible = true;
-  clearGroup(cmuMocapGroup);
+  mocapShowcaseGroup.visible = true;
+  clearGroup(mocapShowcaseGroup);
 
-  const meta = CMU_SOCCER_MOCAPS.find((m) => m.id === mode);
-  if (!meta) return;
-
-  phaseBadgeEl.textContent = '120Hz 光学动捕加载中';
-  phaseDescEl.textContent = `正在加载卡内基梅隆大学 (CMU) 120 FPS 光学动捕实验室原始骨骼序列：${meta.label}...`;
-
-  cmuPedriActor = createArticulatedPlayer({
+  showcasePedriActor = createArticulatedPlayer({
+    id: 'pedri_showcase',
     role: 'pedri',
+    kit: 'barca-home',
     number: '8',
-    label: '#8 佩德里 (120Hz 动捕映射)'
+    shirtName: 'PEDRI',
+    hairColor: '#231710',
+    label: `#8 佩德里 · ${clipId}`
   });
-  cmuMocapGroup.add(cmuPedriActor.root);
-  if (cmuPedriActor.skeletonHelper) {
-    cmuMocapGroup.add(cmuPedriActor.skeletonHelper);
+  mocapShowcaseGroup.add(showcasePedriActor.root);
+  if (showcasePedriActor.skeletonHelper) {
+    mocapShowcaseGroup.add(showcasePedriActor.skeletonHelper);
   }
 
-  try {
-    const bvhData = await loadCmuSoccerBvh(meta.url);
-    activeCmuBvhData = { meta, bvhData };
-
-    cmuMocapGroup.add(bvhData.rootContainer);
-    cmuMocapGroup.add(bvhData.helper);
-
-    matchSourceEl.textContent = `CMU Graphics Lab · 120 FPS Optical BVH (${meta.id.toUpperCase()})`;
-    inspEyebrowEl.textContent = 'OPTICAL MOTION CAPTURE · 120 HZ';
-    inspTitleEl.textContent = meta.label;
-    inspMoveEl.textContent = '23光学关节全身重定向 → Mixamo 67骨骼 SkinnedMesh';
-    inspPressureEl.textContent = '右侧青绿线框为原始 120Hz 光学动捕骨骼，左侧为实时重定向蒙皮球员';
-  } catch (err) {
-    console.error('BVH load error:', err);
-  }
+  matchSourceEl.textContent = `公共足球光学动作捕捉库 · ${meta.category} (${meta.file})`;
+  inspEyebrowEl.textContent = `PUBLIC MOCAP LIBRARY · ${meta.category}`;
+  inspTitleEl.textContent = meta.label;
+  inspMoveEl.textContent = `动作资产 ID: ${meta.id} · 67骨骼四元数全身姿态曲线`;
+  inspPressureEl.textContent = '提示：可切换「肩后 / 足踝特写 / 自由3D」或按 [X] 开启 67 骨骼透视逐帧检阅动作细节';
 }
 
 mocapModeSelectEl.addEventListener('change', (e) => {
@@ -405,8 +472,16 @@ function buildScenarioSidebar() {
       if (activeMocapMode !== 'tactical') {
         activeMocapMode = 'tactical';
         mocapModeSelectEl.value = 'tactical';
-        cmuMocapGroup.visible = false;
+        mocapShowcaseGroup.visible = false;
         scenarioGroup.visible = true;
+      }
+      if (activeVideoSource === 'reel') {
+        const seg = (MASTER_ZHIBO8_REEL.segments || []).find((s) => s.scenarioIndex === idx);
+        loadScenario(idx, { preserveReelPlayback: true });
+        if (seg && zhibo8ClipEl.readyState >= 1) {
+          zhibo8ClipEl.currentTime = seg.start;
+        }
+        return;
       }
       loadScenario(idx);
     });
@@ -421,10 +496,13 @@ function clearGroup(group) {
   }
 }
 
-function loadScenario(index) {
+function loadScenario(index, opts = {}) {
   activeScenarioIndex = index;
-  activeSubClipIndex = 0;
-  timelineT = 0.0;
+  if (!opts.preserveSubClip) {
+    activeSubClipIndex = 0;
+  }
+  currentSec = 0.0;
+  snapCameraNextFrame = true;
   const sc = SCENARIOS[index];
 
   document.querySelectorAll('.scenario-item').forEach((el, i) => {
@@ -442,12 +520,12 @@ function loadScenario(index) {
   });
 
   activeRibbons = [];
-  const pedriTube = createTrajectoryRibbon(sc.pedriRibbon, 0xfacc15, 0.065, 0.78);
+  const pedriTube = createTrajectoryRibbon(sc.pedriRibbon, 0xfacc15, 0.055, 0.76);
   if (pedriTube) {
     scenarioGroup.add(pedriTube);
     activeRibbons.push(pedriTube);
   }
-  const defOvershootTube = createTrajectoryRibbon(sc.overshootRibbon, 0xf87171, 0.05, 0.55);
+  const defOvershootTube = createTrajectoryRibbon(sc.overshootRibbon, 0xf87171, 0.045, 0.52);
   if (defOvershootTube) {
     scenarioGroup.add(defOvershootTube);
     activeRibbons.push(defOvershootTube);
@@ -456,7 +534,7 @@ function loadScenario(index) {
   inspEyebrowEl.textContent = `SCENARIO ${sc.index} · ${sc.zoneTag}`;
   inspTitleEl.textContent = sc.title;
   inspMoveEl.textContent = sc.moveName;
-  inspPressureEl.textContent = `逼抢类型：${sc.pressureType}`;
+  inspPressureEl.textContent = `逼抢态势：${sc.pressureType}`;
 
   metricTouchesEl.textContent = sc.metrics.touches;
   metricFeintEl.textContent = sc.metrics.feintAngle;
@@ -474,16 +552,7 @@ function loadScenario(index) {
     pBtn.className = 'phase-jump-btn';
     pBtn.textContent = ph.label;
     pBtn.addEventListener('click', () => {
-      timelineT = ph.range[0] + 0.02;
-      isPlaying = false;
-      if ((activeVideoSource === 'zhibo8' || activeVideoSource === 'reel') && syncVideoTo3D && zhibo8ClipEl.duration) {
-        zhibo8ClipEl.currentTime = timelineT * zhibo8ClipEl.duration;
-      }
-      if (activeVideoSource === 'local' && localVideoEl.duration) {
-        localVideoEl.currentTime = timelineT * localVideoEl.duration;
-      }
-      syncLocalVideoPlayState();
-      updatePlayButtonLabel();
+      seekToSecond(ph.timeRange[0] + 0.05, true);
     });
     phaseButtonsContainer.appendChild(pBtn);
   });
@@ -491,18 +560,21 @@ function loadScenario(index) {
   const [fx, fy, fz] = sc.defaultFocus;
   if (cameraMode === 'free') {
     controls.target.set(fx, fy + 0.85, fz);
-    camera.position.set(fx + 9.5, 9.5, fz + 13.5);
+    camera.position.set(fx + 14.5, 8.8, fz + 4.5);
   }
 
-  updateRealVideoDeck();
+  if (!opts.preserveReelPlayback) {
+    updateRealVideoDeck();
+  }
 }
 
-// 7. Camera Mode Controller (Now includes Ankle & Ball Close-Up Camera!)
+// 7. Camera Mode Controller
 const desiredCamPos = new THREE.Vector3();
 const desiredCamTarget = new THREE.Vector3();
 
 function setCameraMode(mode, resetView = true) {
   cameraMode = mode;
+  snapCameraNextFrame = true;
   document.querySelectorAll('.cam-btn').forEach((b) => {
     b.classList.toggle('active', b.dataset.cam === mode);
   });
@@ -517,8 +589,17 @@ document.querySelectorAll('.cam-btn').forEach((btn) => {
   btn.addEventListener('click', () => setCameraMode(btn.dataset.cam, true));
 });
 
-// 8. Playback & X-Ray Skeleton Overlay Controls
-function syncLocalVideoPlayState() {
+// 8. Bidirectional Master Clock Seeking & Frame-Stepping (±0.04s)
+function getActiveDurationSec() {
+  if (activeMocapMode !== 'tactical') {
+    const clipId = activeMocapMode.replace(/^lib:/, '');
+    const clip = getMocapClip(clipId);
+    return clip ? Math.max(0.2, clip.duration) : 2.4;
+  }
+  return SCENARIOS[activeScenarioIndex].durationSec;
+}
+
+function syncVideoPlayState() {
   if ((activeVideoSource === 'zhibo8' || activeVideoSource === 'reel') && syncVideoTo3D && zhibo8ClipEl.src) {
     zhibo8ClipEl.playbackRate = playbackSpeed;
     if (isPlaying) {
@@ -541,23 +622,51 @@ function updatePlayButtonLabel() {
   playBtnEl.textContent = isPlaying ? '暂停 ❚❚' : '播放 ▶';
 }
 
+function seekToSecond(targetSec, pausePlayback = true) {
+  const dur = getActiveDurationSec();
+  currentSec = ((targetSec % dur) + dur) % dur;
+
+  if (pausePlayback) {
+    isPlaying = false;
+    syncVideoPlayState();
+    updatePlayButtonLabel();
+  }
+
+  if (activeMocapMode === 'tactical' && syncVideoTo3D) {
+    if (activeVideoSource === 'zhibo8' && zhibo8ClipEl.readyState >= 1) {
+      if (activeSubClipIndex === 0) {
+        zhibo8ClipEl.currentTime = THREE.MathUtils.clamp(currentSec, 0, Math.max(0, zhibo8ClipEl.duration - 0.01));
+      } else if (zhibo8ClipEl.duration > 0.1) {
+        zhibo8ClipEl.currentTime = (currentSec / dur) * zhibo8ClipEl.duration;
+      }
+    } else if (activeVideoSource === 'reel' && zhibo8ClipEl.readyState >= 1) {
+      const seg = (MASTER_ZHIBO8_REEL.segments || []).find((s) => s.scenarioIndex === activeScenarioIndex);
+      if (seg) {
+        zhibo8ClipEl.currentTime = seg.start + currentSec;
+      }
+    } else if (activeVideoSource === 'local' && localVideoEl.duration > 0.1) {
+      localVideoEl.currentTime = (currentSec / dur) * localVideoEl.duration;
+    }
+  }
+}
+
 playBtnEl.addEventListener('click', () => {
   isPlaying = !isPlaying;
-  syncLocalVideoPlayState();
+  syncVideoPlayState();
   updatePlayButtonLabel();
 });
 
+btnStepPrevEl.addEventListener('click', () => {
+  seekToSecond(currentSec - 0.04, true);
+});
+
+btnStepNextEl.addEventListener('click', () => {
+  seekToSecond(currentSec + 0.04, true);
+});
+
 sliderEl.addEventListener('input', (e) => {
-  timelineT = parseFloat(e.target.value) / 1000;
-  isPlaying = false;
-  if ((activeVideoSource === 'zhibo8' || activeVideoSource === 'reel') && syncVideoTo3D && zhibo8ClipEl.duration) {
-    zhibo8ClipEl.currentTime = timelineT * zhibo8ClipEl.duration;
-  }
-  if (activeVideoSource === 'local' && localVideoEl.duration) {
-    localVideoEl.currentTime = timelineT * localVideoEl.duration;
-  }
-  syncLocalVideoPlayState();
-  updatePlayButtonLabel();
+  const norm = parseFloat(e.target.value) / 1000;
+  seekToSecond(norm * getActiveDurationSec(), true);
 });
 
 document.querySelectorAll('.speed-btn').forEach((btn) => {
@@ -594,11 +703,18 @@ bindToggleChip('toggle-traj', 'showTrajectories');
 bindToggleChip('toggle-labels', 'showLabels');
 
 window.addEventListener('keydown', (e) => {
+  if (e.target && (e.target.tagName === 'INPUT' || e.target.tagName === 'SELECT')) return;
   if (e.code === 'Space') {
     e.preventDefault();
     isPlaying = !isPlaying;
-    syncLocalVideoPlayState();
+    syncVideoPlayState();
     updatePlayButtonLabel();
+  } else if (e.code === 'ArrowLeft') {
+    e.preventDefault();
+    seekToSecond(currentSec - 0.04, true);
+  } else if (e.code === 'ArrowRight') {
+    e.preventDefault();
+    seekToSecond(currentSec + 0.04, true);
   } else if (e.key >= '1' && e.key <= '8') {
     if (activeMocapMode !== 'tactical') setMocapMode('tactical');
     loadScenario(parseInt(e.key, 10) - 1);
@@ -614,152 +730,189 @@ const clock = new THREE.Clock();
 function updateRigTelemetryUI(playerModel) {
   if (!playerModel || !playerModel.telemetry) return;
   const tel = playerModel.telemetry;
-  rigBoneCountEl.textContent = `${tel.boneCount} Bones · 28.3k Verts`;
+  rigBoneCountEl.textContent = `${tel.boneCount} Bones (含30指节) · PBR人像`;
   rigActiveClipEl.textContent = tel.activeClip;
   rigActiveFootEl.textContent = tel.activeFoot;
   rigJointAnglesEl.textContent = `Knee ${tel.kneeFlexDeg}° · Ankle ${tel.anklePitchDeg}°/${tel.ankleEversionDeg}°`;
 }
 
+function applyCameraSmoothing(targetFov = 35) {
+  if (Math.abs(camera.fov - targetFov) > 0.05) {
+    camera.fov = snapCameraNextFrame ? targetFov : THREE.MathUtils.lerp(camera.fov, targetFov, 0.12);
+    camera.updateProjectionMatrix();
+  }
+  if (snapCameraNextFrame) {
+    camera.position.copy(desiredCamPos);
+    controls.target.copy(desiredCamTarget);
+    snapCameraNextFrame = false;
+  } else {
+    camera.position.lerp(desiredCamPos, 0.12);
+    controls.target.lerp(desiredCamTarget, 0.14);
+  }
+  camera.lookAt(controls.target);
+}
+
 function evaluateFrame(dt) {
-  // Handle CMU 120Hz Optical Motion Capture Mode
+  // Mode A: 28-Clip Common Football Optical Mocap Library Inspector
   if (activeMocapMode !== 'tactical') {
-    const dur = activeCmuBvhData ? activeCmuBvhData.bvhData.clip.duration : 6.0;
+    const clipId = activeMocapMode.replace(/^lib:/, '');
+    const meta = getMocapMeta(clipId);
+    const dur = getActiveDurationSec();
+
     if (isPlaying) {
-      timelineT += (dt * playbackSpeed) / dur;
-      if (timelineT > 1.0) timelineT -= 1.0;
+      currentSec = (currentSec + dt * playbackSpeed) % dur;
     }
-    sliderEl.value = Math.round(timelineT * 1000);
-    timeReadoutEl.textContent = `${(timelineT * dur).toFixed(2)}s`;
 
-    if (activeCmuBvhData && cmuPedriActor) {
-      const info = evaluateCmuMocapOnPlayer(
-        activeCmuBvhData.bvhData,
-        cmuPedriActor,
-        timelineT,
-        overlaysConfig
+    sliderEl.value = Math.round((currentSec / dur) * 1000);
+    timeReadoutEl.textContent = `${currentSec.toFixed(2)}s / ${dur.toFixed(2)}s`;
+
+    phaseBadgeEl.textContent = `公共动捕库 · ${meta.category}`;
+    phaseDescEl.textContent = `${meta.label} —— 67骨骼全身光学动作捕捉原片检阅（支持 0.25x 慢放、±1帧步进与 [X] 键骨骼透视）。`;
+    if (hudMocapBadgeEl) {
+      hudMocapBadgeEl.textContent = `Mocap Clip: ${clipId} (100%) · Frame ${Math.round(currentSec * 60)}/${Math.round(dur * 60)}`;
+    }
+
+    matchBall.position.set(0.22, 0.24, 8.48);
+
+    if (showcasePedriActor) {
+      const isKickOrPass = clipId.includes('pass') || clipId.includes('through') || clipId.includes('shot') || clipId.includes('kick');
+      updatePlayerPose(
+        showcasePedriActor,
+        {
+          tSec: currentSec,
+          x: 0,
+          z: 8.0,
+          yaw: 0,
+          vx: 0,
+          vz: 0,
+          speed: 0,
+          primaryClip: clipId,
+          clipTime: currentSec,
+          ballTouch:
+            isKickOrPass && currentSec > dur * 0.32 && currentSec < dur * 0.56
+              ? { foot: 'R', type: 'inside', weight: 0.7 }
+              : null
+        },
+        overlaysConfig,
+        matchBall.position
       );
-      if (info) {
-        phaseBadgeEl.textContent = `120Hz 帧 ${info.frameIndex}/${info.totalFrames}`;
-        phaseDescEl.textContent = `${activeCmuBvhData.meta.label} —— 全身 23 光学关节（含左右肩肘腕指、髋膝踝趾）实时驱动 67 骨骼蒙皮网格。按 [X] 键可开启 67 骨骼透视。`;
-
-        // Animate match ball sitting at strike spot and blasting into top corner upon strikeNormT!
-        const strikeT = activeCmuBvhData.meta.strikeNormT;
-        if (timelineT < strikeT) {
-          matchBall.position.set(0.15, 0.24, -0.35);
-        } else {
-          const u = (timelineT - strikeT) / (1.0 - strikeT);
-          matchBall.position.set(
-            0.15 - u * 3.8,
-            0.24 + Math.sin(u * Math.PI) * 2.1,
-            -0.35 - u * 26.5
-          );
-          matchBall.rotation.x -= dt * 18;
-        }
-
-        updateRigTelemetryUI(cmuPedriActor);
-
-        if (cameraMode !== 'free') {
-          const p = info.athletePos;
-          if (cameraMode === 'ankle') {
-            desiredCamTarget.set(p.x, 0.48, p.z);
-            desiredCamPos.set(p.x + 2.1, 0.92, p.z + 2.35);
-          } else {
-            desiredCamTarget.set(p.x + 0.4, 0.95, p.z);
-            desiredCamPos.set(p.x + 4.8, 2.6, p.z + 5.6);
-          }
-          camera.position.lerp(desiredCamPos, 0.08);
-          controls.target.lerp(desiredCamTarget, 0.1);
-          camera.lookAt(controls.target);
-        } else {
-          controls.update();
-        }
-      }
+      updateRigTelemetryUI(showcasePedriActor);
     }
+
+    if (cameraMode !== 'free') {
+      if (cameraMode === 'ankle') {
+        desiredCamTarget.set(0.05, 0.52, 8.2);
+        desiredCamPos.set(2.1, 0.95, 10.4);
+      } else if (cameraMode === 'topdown') {
+        desiredCamTarget.set(0, 0.5, 8.0);
+        desiredCamPos.set(0.01, 12.0, 8.8);
+      } else {
+        desiredCamTarget.set(0, 0.96, 8.0);
+        desiredCamPos.set(3.2, 1.85, 11.6);
+      }
+      applyCameraSmoothing(34);
+    } else {
+      controls.update();
+    }
+
     renderer.render(scene, camera);
     return;
   }
 
-  // Standard 8 Tactical Scenarios Mode (67-Bone SkinnedMesh + Optical Mocap + Two-Bone Foot/Ankle/Arm IK)
-  const sc = SCENARIOS[activeScenarioIndex];
+  // Mode B: 8 Canonical Zhibo8 Scenarios — Master Clock Locked 1:1 to Video
+  let sc = SCENARIOS[activeScenarioIndex];
+  let dur = sc.durationSec;
 
-  if (isPlaying) {
-    timelineT += (dt * playbackSpeed) / LOOP_DURATION_SEC;
-    if (timelineT > 1.0) timelineT -= 1.0;
-  }
-
-  sliderEl.value = Math.round(timelineT * 1000);
-  timeReadoutEl.textContent = `${(timelineT * LOOP_DURATION_SEC).toFixed(1)}s`;
-
-  let activePhaseIdx = 0;
-  for (let i = 0; i < sc.phases.length; i++) {
-    const [r0, r1] = sc.phases[i].range;
-    if (timelineT >= r0 && timelineT <= r1) {
-      activePhaseIdx = i;
-      break;
+  const videoReady = zhibo8ClipEl.style.display !== 'none' && zhibo8ClipEl.readyState >= 2;
+  if (syncVideoTo3D && videoReady && (activeVideoSource === 'zhibo8' || activeVideoSource === 'reel')) {
+    if (activeVideoSource === 'reel') {
+      if (isPlaying && !zhibo8ClipEl.paused) {
+        syncScenarioFromMasterReelTime(zhibo8ClipEl.currentTime);
+        sc = SCENARIOS[activeScenarioIndex];
+        dur = sc.durationSec;
+      }
+    } else if (activeSubClipIndex === 0) {
+      // Exact 1:1 Master Clock Lock to primary Zhibo8 MP4 clip!
+      if (isPlaying && !zhibo8ClipEl.paused) {
+        currentSec = THREE.MathUtils.clamp(zhibo8ClipEl.currentTime, 0, dur);
+      }
+    } else if (zhibo8ClipEl.duration > 0.1 && isPlaying && !zhibo8ClipEl.paused) {
+      currentSec = (zhibo8ClipEl.currentTime / zhibo8ClipEl.duration) * dur;
     }
+  } else if (isPlaying) {
+    currentSec = (currentSec + dt * playbackSpeed) % dur;
   }
-  const ph = sc.phases[activePhaseIdx];
-  phaseBadgeEl.textContent = ph.label;
-  phaseDescEl.textContent = ph.desc;
+
+  sliderEl.value = Math.round((currentSec / dur) * 1000);
+  timeReadoutEl.textContent = `${currentSec.toFixed(2)}s / ${dur.toFixed(2)}s`;
+
+  const evalState = evaluateScenarioAtTime(sc, currentSec);
+
+  phaseBadgeEl.textContent = evalState.phase.label;
+  phaseDescEl.textContent = evalState.phase.desc;
   document.querySelectorAll('.phase-jump-btn').forEach((btn, idx) => {
-    btn.classList.toggle('active', idx === activePhaseIdx);
+    btn.classList.toggle('active', idx === evalState.activePhaseIdx);
   });
 
   activeRibbons.forEach((r) => {
     r.visible = overlaysConfig.showTrajectories;
   });
 
-  const ballState = sampleTrack(sc.ballTrack, timelineT);
-  matchBall.position.set(ballState.x, ballState.y ?? 0.23, ballState.z);
+  matchBall.position.set(evalState.ballState.x, evalState.ballState.y ?? 0.24, evalState.ballState.z);
   const ballMoveDist = Math.hypot(
     matchBall.position.x - prevBallPos.x,
     matchBall.position.z - prevBallPos.z
   );
   if (ballMoveDist > 0.001 && ballMoveDist < 2.0) {
-    matchBall.rotation.x -= ballMoveDist * 3.4;
-    matchBall.rotation.z += ballMoveDist * 1.9;
+    matchBall.rotation.x -= ballMoveDist * 3.6;
+    matchBall.rotation.z += ballMoveDist * 2.1;
   }
   prevBallPos.copy(matchBall.position);
 
-  let pedriPose = null;
+  let pedriState = null;
   let pedriModel = null;
   let minDefDist = 99;
-  let maxDeception = 0;
-  const locoSec = timelineT * LOOP_DURATION_SEC;
 
   activeActors.forEach((actorObj, idx) => {
-    const pose = sampleTrack(actorObj.def.keyframes, timelineT);
-    pose.locomotionTime = locoSec + idx * 0.37;
-
+    const st = evalState.actorStates[idx];
     if (actorObj.def.role === 'pedri') {
-      pedriPose = pose;
+      pedriState = st;
       pedriModel = actorObj.model;
-      maxDeception = Math.max(
-        Math.abs(pose.shoulderRoll) * 2.2,
-        pose.fakeKick,
-        pose.scanIntensity * 0.75,
-        pose.crouch * 0.85
-      );
     }
-    actorObj._pose = pose;
   });
 
-  activeActors.forEach((actorObj) => {
-    const pose = actorObj._pose;
-    if (actorObj.def.role === 'defender' && pedriPose) {
-      const d = Math.hypot(pose.x - pedriPose.x, pose.z - pedriPose.z);
+  activeActors.forEach((actorObj, idx) => {
+    const st = evalState.actorStates[idx];
+    if (actorObj.def.role === 'defender' && pedriState) {
+      const d = Math.hypot(st.x - pedriState.x, st.z - pedriState.z);
       if (d < minDefDist) minDefDist = d;
-      pose.shadowYaw = Math.atan2(pedriPose.x - pose.x, pedriPose.z - pose.z);
+      st.shadowYaw = Math.atan2(pedriState.x - st.x, pedriState.z - st.z);
     }
-    updatePlayerPose(actorObj.model, pose, overlaysConfig, matchBall.position);
+    updatePlayerPose(actorObj.model, st, overlaysConfig, matchBall.position);
   });
 
   if (pedriModel) {
     updateRigTelemetryUI(pedriModel);
+    if (hudMocapBadgeEl) {
+      const syncTag =
+        syncVideoTo3D && videoReady && activeSubClipIndex === 0
+          ? `视频主时钟 1:1 锁定 (${currentSec.toFixed(2)}s)`
+          : `时间轴 (${currentSec.toFixed(2)}s)`;
+      hudMocapBadgeEl.textContent = `HyperMotion: ${pedriModel.activeMocapDebug} · ${syncTag}`;
+    }
   }
 
-  const pressPct = Math.round(Math.max(8, Math.min(98, (1 - (minDefDist - 1.0) / 6.5) * 100)));
-  const decepPct = Math.round(Math.max(12, Math.min(99, maxDeception * 100)));
+  // Spatial telemetry bars
+  const pressPct = Math.round(Math.max(8, Math.min(98, (1 - (minDefDist - 0.9) / 6.5) * 100)));
+  const decepRaw = pedriState
+    ? Math.max(
+        Math.abs(pedriState.leanRoll || 0) * 3.4,
+        pedriState.crouch || 0,
+        pedriState.blendWeight || 0,
+        pedriState.ballTouch ? pedriState.ballTouch.weight * 0.92 : 0.2
+      )
+    : 0.3;
+  const decepPct = Math.round(Math.max(15, Math.min(99, decepRaw * 100)));
   const sepMeters = minDefDist < 50 ? minDefDist.toFixed(2) : '4.50';
   const sepPct = Math.round(Math.max(10, Math.min(100, (minDefDist / 5.5) * 100)));
 
@@ -770,50 +923,34 @@ function evaluateFrame(dt) {
   barSeparation.style.width = `${sepPct}%`;
   valSeparation.textContent = `${sepMeters} m`;
 
-  const [fx, fy, fz] = sc.defaultFocus;
-  if (cameraMode === 'broadcast' && pedriPose) {
+  // Camera framing matched 1:1 to Zhibo8 broadcast perspective (or user-selected tactical camera)
+  if (cameraMode === 'broadcast') {
+    const c = evalState.cam;
+    desiredCamPos.set(c.pos[0], c.pos[1], c.pos[2]);
+    desiredCamTarget.set(c.target[0], c.target[1], c.target[2]);
+    applyCameraSmoothing(c.fov || 35);
+  } else if (cameraMode === 'pedri' && pedriState) {
+    const behindX = pedriState.x - Math.sin(pedriState.yaw) * 4.4;
+    const behindZ = pedriState.z - Math.cos(pedriState.yaw) * 4.4;
+    desiredCamPos.set(behindX, 2.3, behindZ);
     desiredCamTarget.set(
-      THREE.MathUtils.lerp(fx, pedriPose.x, 0.55),
-      0.88,
-      THREE.MathUtils.lerp(fz, pedriPose.z, 0.55)
-    );
-    desiredCamPos.set(desiredCamTarget.x + 9.2, 8.8, desiredCamTarget.z + 12.6);
-    camera.position.lerp(desiredCamPos, 0.06);
-    controls.target.lerp(desiredCamTarget, 0.08);
-    camera.lookAt(controls.target);
-  } else if (cameraMode === 'pedri' && pedriPose) {
-    const behindX = pedriPose.x - Math.sin(pedriPose.yaw) * 4.4;
-    const behindZ = pedriPose.z - Math.cos(pedriPose.yaw) * 4.4;
-    desiredCamPos.set(behindX, 2.35, behindZ);
-    desiredCamTarget.set(
-      pedriPose.x + Math.sin(pedriPose.yaw) * 3.8,
+      pedriState.x + Math.sin(pedriState.yaw) * 3.5,
       1.05,
-      pedriPose.z + Math.cos(pedriPose.yaw) * 3.8
+      pedriState.z + Math.cos(pedriState.yaw) * 3.5
     );
-    camera.position.lerp(desiredCamPos, 0.08);
-    controls.target.lerp(desiredCamTarget, 0.1);
-    camera.lookAt(controls.target);
-  } else if (cameraMode === 'ankle' && pedriPose) {
-    // Low-angle Biomechanical Close-Up locked onto Pedri's Ankles, Knees, Forearms & Ball!
+    applyCameraSmoothing(42);
+  } else if (cameraMode === 'ankle' && pedriState) {
     desiredCamTarget.set(
-      THREE.MathUtils.lerp(pedriPose.x, matchBall.position.x, 0.35),
-      0.55,
-      THREE.MathUtils.lerp(pedriPose.z, matchBall.position.z, 0.35)
+      THREE.MathUtils.lerp(pedriState.x, matchBall.position.x, 0.4),
+      0.52,
+      THREE.MathUtils.lerp(pedriState.z, matchBall.position.z, 0.4)
     );
-    desiredCamPos.set(pedriPose.x + 2.35, 1.18, pedriPose.z + 2.65);
-    camera.position.lerp(desiredCamPos, 0.09);
-    controls.target.lerp(desiredCamTarget, 0.12);
-    camera.lookAt(controls.target);
-  } else if (cameraMode === 'topdown' && pedriPose) {
-    desiredCamTarget.set(
-      THREE.MathUtils.lerp(fx, pedriPose.x, 0.35),
-      0.2,
-      THREE.MathUtils.lerp(fz, pedriPose.z, 0.35)
-    );
-    desiredCamPos.set(desiredCamTarget.x, 24.0, desiredCamTarget.z + 3.2);
-    camera.position.lerp(desiredCamPos, 0.07);
-    controls.target.lerp(desiredCamTarget, 0.09);
-    camera.lookAt(controls.target);
+    desiredCamPos.set(pedriState.x + 2.55, 0.98, pedriState.z + 1.65);
+    applyCameraSmoothing(34);
+  } else if (cameraMode === 'topdown' && pedriState) {
+    desiredCamTarget.set(pedriState.x, 0.2, pedriState.z);
+    desiredCamPos.set(pedriState.x + 0.5, 23.5, pedriState.z + 0.01);
+    applyCameraSmoothing(40);
   } else {
     controls.update();
   }
@@ -821,13 +958,14 @@ function evaluateFrame(dt) {
   renderer.render(scene, camera);
 }
 
-function animate() {
-  requestAnimationFrame(animate);
-  const dt = Math.min(0.05, clock.getDelta());
-  evaluateFrame(dt);
-}
-
+// 10. Boot Studio
 buildScenarioSidebar();
 loadScenario(0);
-setCameraMode('broadcast', true);
+updatePlayButtonLabel();
+
+function animate() {
+  requestAnimationFrame(animate);
+  const dt = Math.min(clock.getDelta(), 0.05);
+  evaluateFrame(dt);
+}
 animate();
