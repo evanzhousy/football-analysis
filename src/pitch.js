@@ -200,27 +200,44 @@ export function createPitchEnvironment(scene) {
 }
 
 /**
- * Creates a detailed 3D match football with procedural panel pattern
+ * Creates an authentic FIFA Size-5 3D match football (radius = 0.115m, diameter = 0.23m)
  */
 export function createMatchBall() {
   const c = document.createElement('canvas');
-  c.width = 256;
-  c.height = 128;
+  c.width = 512;
+  c.height = 256;
   const ctx = c.getContext('2d');
   ctx.fillStyle = '#f8fafc';
-  ctx.fillRect(0, 0, 256, 128);
+  ctx.fillRect(0, 0, 512, 256);
 
-  // Classic dark & gold match-ball star panels
+  // Subtle panel seam lines
+  ctx.strokeStyle = 'rgba(15, 23, 42, 0.28)';
+  ctx.lineWidth = 3;
+  for (let x = 32; x < 512; x += 64) {
+    ctx.beginPath();
+    ctx.moveTo(x, 0);
+    ctx.lineTo(x + 24, 256);
+    ctx.stroke();
+  }
+
+  // Classic dark & garnet LaLiga / Champions star panels
   const spots = [
-    [32, 32], [96, 28], [160, 34], [224, 30],
-    [64, 88], [128, 92], [192, 86]
+    [64, 58], [192, 52], [320, 62], [448, 56],
+    [128, 184], [256, 192], [384, 178]
   ];
   spots.forEach(([x, y], idx) => {
     ctx.beginPath();
-    ctx.arc(x, y, 15, 0, Math.PI * 2);
-    ctx.fillStyle = idx % 2 === 0 ? '#111827' : '#a50044';
+    for (let k = 0; k < 5; k++) {
+      const ang = (k * Math.PI * 2) / 5 - Math.PI / 2;
+      const px = x + Math.cos(ang) * 24;
+      const py = y + Math.sin(ang) * 24;
+      if (k === 0) ctx.moveTo(px, py);
+      else ctx.lineTo(px, py);
+    }
+    ctx.closePath();
+    ctx.fillStyle = idx % 2 === 0 ? '#0f172a' : '#a50044';
     ctx.fill();
-    ctx.lineWidth = 2.5;
+    ctx.lineWidth = 3.5;
     ctx.strokeStyle = '#eab308';
     ctx.stroke();
   });
@@ -229,14 +246,15 @@ export function createMatchBall() {
   tex.colorSpace = THREE.SRGBColorSpace;
 
   const ballMesh = new THREE.Mesh(
-    new THREE.SphereGeometry(0.24, 28, 28),
+    new THREE.SphereGeometry(0.115, 32, 32),
     new THREE.MeshStandardMaterial({
       map: tex,
-      roughness: 0.32,
-      metalness: 0.08
+      roughness: 0.28,
+      metalness: 0.06
     })
   );
   ballMesh.castShadow = true;
-  ballMesh.position.y = 0.24;
+  ballMesh.receiveShadow = true;
+  ballMesh.position.y = 0.115;
   return ballMesh;
 }

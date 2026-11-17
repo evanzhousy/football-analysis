@@ -15,7 +15,7 @@ export const MASTER_ZHIBO8_REEL = {
     { scenarioIndex: 4, start: 22.534, end: 33.068 },
     { scenarioIndex: 5, start: 33.068, end: 41.902 },
     { scenarioIndex: 6, start: 41.902, end: 47.702 },
-    { scenarioIndex: 7, start: 47.702, end: 55.536 }
+    { scenarioIndex: 7, start: 47.702, end: 55.469 }
   ]
 };
 

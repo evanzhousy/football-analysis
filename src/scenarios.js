@@ -28,13 +28,13 @@ const CROSSFADE_SEC = 0.26;
  */
 function sampleSpatialKeyframes(keyframes, tSec) {
   if (!keyframes || keyframes.length === 0) {
-    return { x: 0, y: 0.24, z: 0, yaw: 0, crouch: 0, scanYaw: 0, shieldSide: null, showShadow: true };
+    return { x: 0, y: 0.115, z: 0, yaw: 0, crouch: 0, scanYaw: 0, shieldSide: null, showShadow: true };
   }
   if (tSec <= keyframes[0].t) {
     const k = keyframes[0];
     return {
       x: k.x,
-      y: k.y ?? 0.24,
+      y: k.y ?? 0.115,
       z: k.z,
       yaw: k.yaw ?? 0,
       crouch: k.crouch ?? 0,
@@ -48,7 +48,7 @@ function sampleSpatialKeyframes(keyframes, tSec) {
   if (tSec >= last.t) {
     return {
       x: last.x,
-      y: last.y ?? 0.24,
+      y: last.y ?? 0.115,
       z: last.z,
       yaw: last.yaw ?? 0,
       crouch: last.crouch ?? 0,
@@ -69,7 +69,7 @@ function sampleSpatialKeyframes(keyframes, tSec) {
 
       const x = lerp(k0.x, k1.x, u);
       const z = lerp(k0.z, k1.z, u);
-      let y = lerp(k0.y ?? 0.24, k1.y ?? 0.24, u);
+      let y = lerp(k0.y ?? 0.115, k1.y ?? 0.115, u);
       if (k1.arcY) {
         y += Math.sin(rawU * Math.PI) * k1.arcY;
       }
@@ -100,7 +100,7 @@ function sampleSpatialKeyframes(keyframes, tSec) {
     }
   }
 
-  return { x: last.x, y: last.y ?? 0.24, z: last.z, yaw: last.yaw ?? 0, crouch: 0, scanYaw: 0, shieldSide: null, showShadow: true };
+  return { x: last.x, y: last.y ?? 0.115, z: last.z, yaw: last.yaw ?? 0, crouch: 0, scanYaw: 0, shieldSide: null, showShadow: true };
 }
 
 /**
@@ -372,6 +372,7 @@ export const SCENARIOS = [
       },
       {
         id: 'mallorca5',
+        hairVariant: 2,
         role: 'defender',
         kit: 'mallorca-yellow',
         number: '5',
@@ -388,6 +389,7 @@ export const SCENARIOS = [
       },
       {
         id: 'passer',
+        hairVariant: 2,
         role: 'teammate',
         kit: 'barca-home',
         number: '5',
@@ -406,12 +408,12 @@ export const SCENARIOS = [
       }
     ],
     ballTrack: [
-      { t: 0.0, x: 0.85, y: 0.24, z: 16.2 },
-      { t: 1.35, x: 1.18, y: 0.42, z: 10.6, arcY: 0.18 },
-      { t: 1.92, x: 1.42, y: 0.32, z: 8.55 },
-      { t: 2.38, x: 2.08, y: 0.24, z: 7.45 },
-      { t: 3.0, x: 2.52, y: 0.24, z: 4.95 },
-      { t: 4.0, x: 3.02, y: 0.24, z: -0.15 }
+      { t: 0.0, x: 0.85, y: 0.115, z: 16.2 },
+      { t: 1.35, x: 1.18, y: 0.26, z: 10.6, arcY: 0.14 },
+      { t: 1.92, x: 1.42, y: 0.19, z: 8.55 },
+      { t: 2.38, x: 2.08, y: 0.115, z: 7.45 },
+      { t: 3.0, x: 2.52, y: 0.115, z: 4.95 },
+      { t: 4.0, x: 3.02, y: 0.115, z: -0.15 }
     ],
     pedriRibbon: [[1.1, 0.06, 7.4], [1.25, 0.06, 8.75], [1.85, 0.06, 8.1], [2.4, 0.06, 6.2], [2.85, 0.06, 0.65]],
     overshootRibbon: [[0.65, 0.05, 5.2], [0.62, 0.05, 8.55], [0.38, 0.05, 9.25]]
@@ -508,6 +510,7 @@ export const SCENARIOS = [
       },
       {
         id: 'rayo6',
+        hairVariant: 2,
         role: 'defender',
         kit: 'rayo-white',
         number: '6',
@@ -531,6 +534,7 @@ export const SCENARIOS = [
       },
       {
         id: 'raphinha',
+        hairVariant: 2,
         role: 'teammate',
         kit: 'barca-home',
         number: '11',
@@ -544,13 +548,13 @@ export const SCENARIOS = [
       }
     ],
     ballTrack: [
-      { t: 0.0, x: 7.4, y: 0.24, z: 2.6 },
-      { t: 1.42, x: 4.65, y: 0.24, z: 6.52 },
-      { t: 2.88, x: 4.02, y: 0.24, z: 7.42 },
-      { t: 3.22, x: 3.08, y: 0.24, z: 8.12 },
-      { t: 3.68, x: 2.42, y: 0.24, z: 9.55 },
-      { t: 5.52, x: 0.25, y: 0.24, z: 13.95 },
-      { t: 6.5, x: -5.35, y: 0.24, z: 16.55 }
+      { t: 0.0, x: 7.4, y: 0.115, z: 2.6 },
+      { t: 1.42, x: 4.65, y: 0.115, z: 6.52 },
+      { t: 2.88, x: 4.02, y: 0.115, z: 7.42 },
+      { t: 3.22, x: 3.08, y: 0.115, z: 8.12 },
+      { t: 3.68, x: 2.42, y: 0.115, z: 9.55 },
+      { t: 5.52, x: 0.25, y: 0.115, z: 13.95 },
+      { t: 6.5, x: -5.35, y: 0.115, z: 16.55 }
     ],
     pedriRibbon: [[5.2, 0.06, 5.8], [4.05, 0.06, 7.25], [3.12, 0.06, 8.05], [2.25, 0.06, 9.95], [0.45, 0.06, 13.6]],
     overshootRibbon: [[6.5, 0.05, 9.2], [5.15, 0.05, 8.45], [3.95, 0.05, 7.25]]
@@ -644,6 +648,7 @@ export const SCENARIOS = [
       },
       {
         id: 'psg8',
+        hairVariant: 2,
         role: 'defender',
         kit: 'psg-navy',
         number: '8',
@@ -676,6 +681,7 @@ export const SCENARIOS = [
       },
       {
         id: 'gavi',
+        hairVariant: 2,
         role: 'teammate',
         kit: 'barca-home',
         number: '6',
@@ -689,12 +695,12 @@ export const SCENARIOS = [
       }
     ],
     ballTrack: [
-      { t: 0.0, x: 5.2, y: 0.24, z: 11.4 },
-      { t: 1.48, x: 1.78, y: 0.24, z: 6.15 },
-      { t: 2.05, x: 1.38, y: 0.24, z: 5.32 },
-      { t: 2.75, x: 0.55, y: 0.24, z: 4.45 },
-      { t: 4.55, x: -1.65, y: 0.24, z: 1.95 },
-      { t: 5.6, x: -8.85, y: 0.24, z: -1.15 }
+      { t: 0.0, x: 5.2, y: 0.115, z: 11.4 },
+      { t: 1.48, x: 1.78, y: 0.115, z: 6.15 },
+      { t: 2.05, x: 1.38, y: 0.115, z: 5.32 },
+      { t: 2.75, x: 0.55, y: 0.115, z: 4.45 },
+      { t: 4.55, x: -1.65, y: 0.115, z: 1.95 },
+      { t: 5.6, x: -8.85, y: 0.115, z: -1.15 }
     ],
     pedriRibbon: [[2.2, 0.06, 7.4], [1.75, 0.06, 6.25], [1.15, 0.06, 5.25], [0.25, 0.06, 4.15], [-1.45, 0.06, 2.15]],
     overshootRibbon: [[0.8, 0.05, 2.8], [1.35, 0.05, 4.65], [1.95, 0.05, 5.55]]
@@ -785,6 +791,7 @@ export const SCENARIOS = [
       },
       {
         id: 'atleti14',
+        hairVariant: 2,
         role: 'defender',
         kit: 'atleti-striped',
         number: '14',
@@ -816,6 +823,7 @@ export const SCENARIOS = [
       },
       {
         id: 'lewy',
+        hairVariant: 2,
         role: 'teammate',
         kit: 'barca-gold',
         number: '9',
@@ -829,12 +837,12 @@ export const SCENARIOS = [
       }
     ],
     ballTrack: [
-      { t: 0.0, x: 24.4, y: 0.24, z: 2.1 },
-      { t: 1.85, x: 25.9, y: 0.24, z: -3.15 },
-      { t: 2.92, x: 26.0, y: 0.24, z: -3.85 },
-      { t: 3.65, x: 22.0, y: 0.24, z: -1.35 },
-      { t: 5.12, x: 15.8, y: 0.24, z: 1.15 },
-      { t: 6.434, x: 6.95, y: 0.24, z: -2.25 }
+      { t: 0.0, x: 24.4, y: 0.115, z: 2.1 },
+      { t: 1.85, x: 25.9, y: 0.115, z: -3.15 },
+      { t: 2.92, x: 26.0, y: 0.115, z: -3.85 },
+      { t: 3.65, x: 22.0, y: 0.115, z: -1.35 },
+      { t: 5.12, x: 15.8, y: 0.115, z: 1.15 },
+      { t: 6.434, x: 6.95, y: 0.115, z: -2.25 }
     ],
     pedriRibbon: [[24.2, 0.06, 2.6], [26.1, 0.06, -3.7], [22.4, 0.06, -1.6], [16.2, 0.06, 1.1]],
     overshootRibbon: [[22.8, 0.05, 3.2], [24.4, 0.05, -3.4], [24.8, 0.05, -5.2]]
@@ -873,7 +881,7 @@ export const SCENARIOS = [
     camTrack: [
       { t: 0.0, pos: [24.2, 11.8, 7.2], target: [1.5, 0.85, 6.2], fov: 38 },
       { t: 3.5, pos: [24.5, 11.8, -1.5], target: [2.2, 0.85, -2.5], fov: 38 },
-      { t: 5.5, pos: [24.2, 11.5, -8.5], target: [3.5, 0.85, -13.5], fov: 37 },
+      { t: 5.5, pos: [24.2, 11.5, -6.2], target: [3.2, 0.85, -9.6], fov: 38 },
       { t: 8.2, pos: [23.2, 10.8, -19.5], target: [2.8, 0.95, -25.5], fov: 35 },
       { t: 10.534, pos: [22.5, 10.5, -22.5], target: [0.2, 1.15, -31.5], fov: 35 }
     ],
@@ -908,6 +916,7 @@ export const SCENARIOS = [
       },
       {
         id: 'yamal',
+        hairVariant: 2,
         role: 'teammate',
         kit: 'barca-home',
         number: '19',
@@ -970,6 +979,7 @@ export const SCENARIOS = [
       },
       {
         id: 'vil3',
+        hairVariant: 2,
         role: 'defender',
         kit: 'villarreal-yellow',
         number: '3',
@@ -1001,15 +1011,15 @@ export const SCENARIOS = [
       }
     ],
     ballTrack: [
-      { t: 0.0, x: -4.2, y: 0.24, z: 15.2 },
-      { t: 2.12, x: 2.25, y: 0.24, z: 6.15 },
-      { t: 3.65, x: 2.88, y: 0.24, z: -1.15 },
-      { t: 5.05, x: 3.28, y: 0.24, z: -4.65 },
-      { t: 6.35, x: 6.95, y: 0.24, z: -21.2 },
-      { t: 7.72, x: 4.85, y: 0.24, z: -25.1 },
-      { t: 8.98, x: 1.55, y: 0.24, z: -26.2 },
+      { t: 0.0, x: -4.2, y: 0.115, z: 15.2 },
+      { t: 2.12, x: 2.25, y: 0.115, z: 6.15 },
+      { t: 3.65, x: 2.88, y: 0.115, z: -1.15 },
+      { t: 5.05, x: 3.28, y: 0.115, z: -4.65 },
+      { t: 6.35, x: 6.95, y: 0.115, z: -21.2 },
+      { t: 7.72, x: 4.85, y: 0.115, z: -25.1 },
+      { t: 8.98, x: 1.55, y: 0.115, z: -26.2 },
       { t: 9.72, x: -2.75, y: 1.18, z: -34.35, ease: 'linear' },
-      { t: 10.534, x: -2.85, y: 0.24, z: -35.1 }
+      { t: 10.534, x: -2.85, y: 0.115, z: -35.1 }
     ],
     pedriRibbon: [[1.8, 0.06, 7.5], [2.2, 0.06, 6.4], [2.8, 0.06, -0.8], [3.28, 0.06, -4.65], [6.95, 0.06, -21.2]],
     overshootRibbon: [[1.8, 0.05, -9.2], [2.6, 0.05, -6.1]]
@@ -1084,6 +1094,7 @@ export const SCENARIOS = [
       },
       {
         id: 'olmo',
+        hairVariant: 2,
         role: 'teammate',
         kit: 'barca-home',
         number: '20',
@@ -1134,6 +1145,7 @@ export const SCENARIOS = [
       },
       {
         id: 'val3',
+        hairVariant: 2,
         role: 'defender',
         kit: 'valencia-white',
         number: '3',
@@ -1166,14 +1178,14 @@ export const SCENARIOS = [
       }
     ],
     ballTrack: [
-      { t: 0.0, x: -9.5, y: 0.24, z: 4.2 },
-      { t: 2.35, x: -2.05, y: 0.24, z: -2.45 },
-      { t: 4.55, x: 2.55, y: 0.24, z: -10.8 },
-      { t: 5.15, x: 0.78, y: 0.24, z: -15.45 },
-      { t: 5.65, x: 1.05, y: 0.24, z: -16.35 },
-      { t: 6.85, x: 2.28, y: 0.24, z: -23.1 },
-      { t: 7.72, x: -2.55, y: 0.32, z: -34.35, ease: 'linear' },
-      { t: 8.834, x: -2.65, y: 0.24, z: -35.1 }
+      { t: 0.0, x: -9.5, y: 0.115, z: 4.2 },
+      { t: 2.35, x: -2.05, y: 0.115, z: -2.45 },
+      { t: 4.55, x: 2.55, y: 0.115, z: -10.8 },
+      { t: 5.15, x: 0.78, y: 0.115, z: -15.45 },
+      { t: 5.65, x: 1.05, y: 0.115, z: -16.35 },
+      { t: 6.85, x: 2.28, y: 0.115, z: -23.1 },
+      { t: 7.72, x: -2.55, y: 0.22, z: -34.35, ease: 'linear' },
+      { t: 8.834, x: -2.65, y: 0.115, z: -35.1 }
     ],
     pedriRibbon: [[-3.2, 0.06, -0.8], [-2.2, 0.06, -2.2], [2.6, 0.06, -10.4], [2.35, 0.06, -22.6]],
     overshootRibbon: [[0.5, 0.05, -8.5], [1.8, 0.05, -11.2], [4.0, 0.05, -10.8]]
@@ -1246,6 +1258,7 @@ export const SCENARIOS = [
       },
       {
         id: 'psg8_s7',
+        hairVariant: 2,
         role: 'defender',
         kit: 'psg-navy',
         number: '8',
@@ -1289,28 +1302,28 @@ export const SCENARIOS = [
       }
     ],
     ballTrack: [
-      { t: 0.0, x: 2.42, y: 0.24, z: 7.75 },
-      { t: 1.95, x: 2.68, y: 0.24, z: 4.52 },
-      { t: 3.25, x: 2.58, y: 0.24, z: 4.12 },
-      { t: 4.08, x: 2.36, y: 0.24, z: 3.22 },
-      { t: 4.35, x: 2.22, y: 0.24, z: 2.15, ease: 'linear' }, // right through #17 Vitinha's legs at (2.22, 2.25)!
-      { t: 5.8, x: 1.72, y: 0.24, z: -1.85 }
+      { t: 0.0, x: 2.42, y: 0.115, z: 7.75 },
+      { t: 1.95, x: 2.68, y: 0.115, z: 4.52 },
+      { t: 3.25, x: 2.58, y: 0.115, z: 4.12 },
+      { t: 4.08, x: 2.36, y: 0.115, z: 3.22 },
+      { t: 4.35, x: 2.22, y: 0.115, z: 2.15, ease: 'linear' }, // right through #17 Vitinha's legs at (2.22, 2.25)!
+      { t: 5.8, x: 1.72, y: 0.115, z: -1.85 }
     ],
     pedriRibbon: [[2.35, 0.06, 8.1], [2.62, 0.06, 4.45], [2.38, 0.06, 3.35], [1.05, 0.06, 1.45], [1.65, 0.06, -1.45]],
     overshootRibbon: [[1.35, 0.05, 8.6], [1.95, 0.05, 4.85], [3.45, 0.05, 2.35]]
   },
 
   // ============================================================================
-  // SCENARIO 08: s8_zhibo8_sevilla_double_fakeshot.mp4 (7.834s — Barça vs Sevilla)
+  // SCENARIO 08: s8_zhibo8_sevilla_double_fakeshot.mp4 (7.767s — Barça vs Sevilla)
   // ============================================================================
   {
     id: 'zone14-double-fakeshot',
     index: '08',
-    durationSec: 7.834,
+    durationSec: 7.767,
     title: '诺坎普弧顶双假射 · 连续晃飞两记滑铲贴地斩',
     moveName: '两次高摆腿假射真扣 + 右脚贴地火箭破门 (Double Fake-Shot Goal vs Sevilla)',
-    zoneTag: 'Zone 14 禁区弧顶 (7.83s 1:1)',
-    matchRef: '直播吧 720p 原片 1:1 帧同步：巴萨 1-0 塞维利亚 (7.83s 无切镜完整进球)',
+    zoneTag: 'Zone 14 禁区弧顶 (7.77s 1:1)',
+    matchRef: '直播吧 720p 原片 1:1 帧同步：巴萨 1-0 塞维利亚 (7.77s 无切镜完整进球)',
     pressureType: '塞维利亚白衣红袜 #10 拉基蒂奇 + #20 迭戈·卡洛斯先后飞身封堵滑铲',
     metrics: {
       touches: '2.5s左扣 + 3.7s右扣 + 4.95s爆射',
@@ -1327,14 +1340,14 @@ export const SCENARIOS = [
       { timeRange: [0.0, 2.05], label: '0.0–2.05s 登贝莱倒三角回敲', desc: '右路 #7 登贝莱横传弧顶，佩德里迎球停稳直面塞维利亚密集防线。' },
       { timeRange: [2.05, 3.25], label: '2.05–3.25s 假射①晃飞拉基蒂奇', desc: '第一次高扬右腿假射急停左扣，#10 拉基蒂奇倒地滑铲直接飞出射门线！' },
       { timeRange: [3.25, 4.65], label: '3.25–4.65s 假射②晃飞卡洛斯', desc: '第二次假射顺势向右回扣，补防中卫 #20 迭戈·卡洛斯同样飞身滑铲扑空！' },
-      { timeRange: [4.65, 7.834], label: '4.65–7.83s 贴地斩远角破门', desc: '4.95s 右脚抽出贴地激光炮直窜远角，粉衣门将布努鞭长莫及，诺坎普沸腾！' }
+      { timeRange: [4.65, 7.767], label: '4.65–7.77s 贴地斩远角破门', desc: '4.95s 右脚抽出贴地激光炮直窜远角，粉衣门将布努鞭长莫及，诺坎普沸腾！' }
     ],
     defaultFocus: [2.0, 0, -20.0],
     camTrack: [
       { t: 0.0, pos: [23.2, 10.6, -11.8], target: [4.8, 0.9, -16.8], fov: 35 },
       { t: 2.8, pos: [22.6, 10.4, -13.2], target: [2.6, 0.9, -17.5], fov: 35 },
       { t: 5.2, pos: [21.8, 10.2, -15.8], target: [0.8, 0.95, -24.5], fov: 34 },
-      { t: 7.834, pos: [21.5, 10.0, -17.5], target: [2.2, 1.05, -26.5], fov: 34 }
+      { t: 7.767, pos: [21.5, 10.0, -17.5], target: [2.2, 1.05, -26.5], fov: 34 }
     ],
     actors: [
       {
@@ -1354,7 +1367,7 @@ export const SCENARIOS = [
           { t: 4.28, x: 3.82, z: -16.95, yaw: -3.12, crouch: 0.38, leanRoll: -0.16 },
           { t: 5.15, x: 3.95, z: -17.45, yaw: -2.95, crouch: 0.25 },
           { t: 6.2, x: 6.2, z: -18.2, yaw: -1.75, crouch: 0.1 },
-          { t: 7.834, x: 9.8, z: -17.6, yaw: -1.55, crouch: 0.08 }
+          { t: 7.767, x: 9.8, z: -17.6, yaw: -1.55, crouch: 0.08 }
         ],
         mocapSchedule: [
           { start: 0.0, end: 1.60, clip: 'jog_fwd', rate: 0.9 },
@@ -1364,7 +1377,7 @@ export const SCENARIOS = [
           { start: 3.18, end: 3.68, clip: 'soccer_power_kick', rate: 1.35, offset: 0.18 },
           { start: 3.68, end: 4.45, clip: 'soccer_cut_right_90', rate: 1.25, offset: 0.05 },
           { start: 4.45, end: 5.55, clip: 'soccer_shot_drive', rate: 1.22, offset: 0.1 },
-          { start: 5.55, end: 7.834, clip: 'sprint_fwd', rate: 1.05 }
+          { start: 5.55, end: 7.767, clip: 'sprint_fwd', rate: 1.05 }
         ],
         touchWindows: [
           { start: 1.58, peak: 1.76, end: 1.96, foot: 'R', type: 'inside', maxWeight: 0.85 },
@@ -1375,6 +1388,7 @@ export const SCENARIOS = [
       },
       {
         id: 'dembele',
+        hairVariant: 2,
         role: 'teammate',
         kit: 'barca-home',
         number: '7',
@@ -1385,11 +1399,11 @@ export const SCENARIOS = [
         keyframes: [
           { t: 0.0, x: 15.2, z: -20.5, yaw: -1.15, crouch: 0.25 },
           { t: 0.65, x: 14.4, z: -19.8, yaw: -1.25, crouch: 0.25 },
-          { t: 7.834, x: 12.8, z: -18.5, yaw: -1.55, crouch: 0.1 }
+          { t: 7.767, x: 12.8, z: -18.5, yaw: -1.55, crouch: 0.1 }
         ],
         mocapSchedule: [
           { start: 0.0, end: 0.85, clip: 'soccer_pass_inside', rate: 1.2, offset: 0.25 },
-          { start: 0.85, end: 7.834, clip: 'idle_ready', rate: 0.95 }
+          { start: 0.85, end: 7.767, clip: 'idle_ready', rate: 0.95 }
         ]
       },
       {
@@ -1406,16 +1420,17 @@ export const SCENARIOS = [
           { t: 2.25, x: 4.5, z: -16.2, yaw: 0.35, crouch: 0.58 },
           { t: 2.95, x: 6.8, z: -15.4, yaw: 0.95, crouch: 0.82, leanRoll: -0.28 },
           { t: 4.5, x: 7.1, z: -15.2, yaw: -1.8, crouch: 0.55 },
-          { t: 7.834, x: 5.8, z: -17.0, yaw: -2.8, crouch: 0.25 }
+          { t: 7.767, x: 5.8, z: -17.0, yaw: -2.8, crouch: 0.25 }
         ],
         mocapSchedule: [
           { start: 0.0, end: 2.28, clip: 'sprint_fwd', rate: 1.08 },
           { start: 2.28, end: 3.65, clip: 'soccer_turf_hand_shield', rate: 1.25, offset: 0.05 },
-          { start: 3.65, end: 7.834, clip: 'walk_fwd', rate: 0.85 }
+          { start: 3.65, end: 7.767, clip: 'walk_fwd', rate: 0.85 }
         ]
       },
       {
         id: 'diegocarlos',
+        hairVariant: 2,
         role: 'defender',
         kit: 'sevilla-white',
         number: '20',
@@ -1430,12 +1445,12 @@ export const SCENARIOS = [
           { t: 3.45, x: 1.45, z: -17.2, yaw: 0.2, crouch: 0.58 },
           { t: 4.25, x: -1.35, z: -16.3, yaw: -0.95, crouch: 0.82, leanRoll: 0.28 },
           { t: 5.8, x: -1.5, z: -16.5, yaw: -2.5, crouch: 0.5 },
-          { t: 7.834, x: -0.8, z: -18.5, yaw: -2.9, crouch: 0.25 }
+          { t: 7.767, x: -0.8, z: -18.5, yaw: -2.9, crouch: 0.25 }
         ],
         mocapSchedule: [
           { start: 0.0, end: 3.48, clip: 'jog_fwd', rate: 1.05 },
           { start: 3.48, end: 4.85, clip: 'soccer_turf_hand_shield', rate: 1.25, offset: 0.05 },
-          { start: 4.85, end: 7.834, clip: 'walk_fwd', rate: 0.85 }
+          { start: 4.85, end: 7.767, clip: 'walk_fwd', rate: 0.85 }
         ]
       },
       {
@@ -1450,20 +1465,20 @@ export const SCENARIOS = [
           { t: 0.0, x: 0.6, z: -33.2, yaw: 0.15, crouch: 0.35, showShadow: false },
           { t: 4.95, x: 0.85, z: -32.8, yaw: 0.2, crouch: 0.55, showShadow: false },
           { t: 5.75, x: -1.95, z: -33.4, yaw: 0.45, crouch: 0.75, leanRoll: 0.28, showShadow: false },
-          { t: 7.834, x: -1.95, z: -33.4, yaw: 0.45, crouch: 0.55, showShadow: false }
+          { t: 7.767, x: -1.95, z: -33.4, yaw: 0.45, crouch: 0.55, showShadow: false }
         ]
       }
     ],
     ballTrack: [
-      { t: 0.0, x: 14.5, y: 0.24, z: -19.8 },
-      { t: 1.62, x: 4.92, y: 0.24, z: -15.05 },
-      { t: 2.46, x: 4.65, y: 0.24, z: -15.32 },
-      { t: 3.08, x: 1.82, y: 0.24, z: -15.95 },
-      { t: 3.68, x: 1.85, y: 0.24, z: -16.15 },
-      { t: 4.35, x: 3.88, y: 0.24, z: -17.25 },
-      { t: 5.02, x: 3.92, y: 0.24, z: -17.65 },
-      { t: 5.74, x: -3.05, y: 0.28, z: -34.35, ease: 'linear' },
-      { t: 7.834, x: -3.15, y: 0.24, z: -35.2 }
+      { t: 0.0, x: 14.5, y: 0.115, z: -19.8 },
+      { t: 1.62, x: 4.92, y: 0.115, z: -15.05 },
+      { t: 2.46, x: 4.65, y: 0.115, z: -15.32 },
+      { t: 3.08, x: 1.82, y: 0.115, z: -15.95 },
+      { t: 3.68, x: 1.85, y: 0.115, z: -16.15 },
+      { t: 4.35, x: 3.88, y: 0.115, z: -17.25 },
+      { t: 5.02, x: 3.92, y: 0.115, z: -17.65 },
+      { t: 5.74, x: -3.05, y: 0.20, z: -34.35, ease: 'linear' },
+      { t: 7.767, x: -3.15, y: 0.115, z: -35.2 }
     ],
     pedriRibbon: [[5.4, 0.06, -13.6], [4.75, 0.06, -15.15], [1.85, 0.06, -15.75], [3.88, 0.06, -17.25], [-3.05, 0.12, -34.35]],
     overshootRibbon: [[3.6, 0.05, -18.8], [4.5, 0.05, -16.2], [6.8, 0.05, -15.4]]

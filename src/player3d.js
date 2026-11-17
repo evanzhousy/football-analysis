@@ -23,14 +23,14 @@ const _qParentWorld = new THREE.Quaternion();
 const _qAdd = new THREE.Quaternion();
 
 let sharedFootballerGltf = null;
-let sharedHairMesh = null;
-let sharedBeardMesh = null;
+let sharedJerseyTopMesh = null;
+let sharedAltHairMesh = null;
 let assetLoadPromise = null;
 
 /**
  * Preloads:
- * 1. Photorealistic 67-bone rigged footballer GLB (face, eyes, teeth, skin, jersey, shorts, cleats)
- * 2. Athletic short hair & optional beard skinned meshes
+ * 1. Athletic 67-bone rigged footballer GLB (sculpted calves/knees, tailored shorts, cleats, native short hair)
+ * 2. Fitted crew-neck short-sleeve football jersey + alternate hairstyle GLB (identical 67-bone bind pose)
  * 3. All 28 67-bone studio optical motion-capture clips in the Common Football Mocap Library
  */
 export function preloadAthleteRig(onProgress) {
@@ -50,14 +50,14 @@ export function preloadAthleteRig(onProgress) {
     );
   });
 
-  const pHair = new Promise((resolve) => {
+  const pJersey = new Promise((resolve) => {
     loader.load(
-      './assets/models/footballer_hair.glb',
+      './assets/models/footballer_jersey.glb',
       (gltf) => {
         gltf.scene.traverse((obj) => {
           if (obj.isSkinnedMesh) {
-            if (obj.name.includes('Hair')) sharedHairMesh = obj;
-            if (obj.name.includes('Beard')) sharedBeardMesh = obj;
+            if (obj.name.includes('Outfit_Top')) sharedJerseyTopMesh = obj;
+            if (obj.name.includes('Hair')) sharedAltHairMesh = obj;
           }
         });
         resolve();
@@ -69,7 +69,7 @@ export function preloadAthleteRig(onProgress) {
 
   const pMocap = preloadMocapLibrary(onProgress);
 
-  assetLoadPromise = Promise.all([pBody, pHair, pMocap]).then(() => sharedFootballerGltf);
+  assetLoadPromise = Promise.all([pBody, pJersey, pMocap]).then(() => sharedFootballerGltf);
   return assetLoadPromise;
 }
 
@@ -79,56 +79,74 @@ export function isAthleteRigReady() {
 
 function createLabelSprite(text, role) {
   const c = document.createElement('canvas');
-  c.width = 420;
-  c.height = 86;
+  c.width = 384;
+  c.height = 96;
   const ctx = c.getContext('2d');
 
-  const bg =
-    role === 'pedri'
-      ? 'rgba(12, 18, 34, 0.92)'
-      : role === 'teammate'
-      ? 'rgba(12, 34, 68, 0.86)'
-      : 'rgba(56, 14, 18, 0.86)';
-  const border =
-    role === 'pedri' ? '#facc15' : role === 'teammate' ? '#38bdf8' : '#f87171';
+  const isPedri = role === 'pedri';
+  const bg = isPedri
+    ? 'rgba(10, 16, 30, 0.88)'
+    : role === 'teammate'
+    ? 'rgba(12, 30, 58, 0.78)'
+    : 'rgba(48, 14, 18, 0.78)';
+  const border = isPedri ? '#facc15' : role === 'teammate' ? '#38bdf8' : '#f87171';
 
   ctx.fillStyle = bg;
   ctx.strokeStyle = border;
-  ctx.lineWidth = 4;
+  ctx.lineWidth = isPedri ? 3.5 : 2.5;
   ctx.beginPath();
-  ctx.roundRect(8, 10, 404, 66, 14);
+  ctx.roundRect(22, 8, 340, 52, 26);
   ctx.fill();
   ctx.stroke();
 
-  ctx.fillStyle = role === 'pedri' ? '#fde047' : '#f8fafc';
-  ctx.font = 'bold 26px "Inter", "Noto Sans SC", sans-serif';
+  // EA Sports FC style downward player cursor triangle
+  ctx.fillStyle = border;
+  ctx.beginPath();
+  ctx.moveTo(180, 66);
+  ctx.lineTo(204, 66);
+  ctx.lineTo(192, 86);
+  ctx.closePath();
+  ctx.fill();
+
+  ctx.fillStyle = isPedri ? '#fde047' : '#f1f5f9';
+  ctx.font = '700 23px "Inter", "Noto Sans SC", sans-serif';
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
-  ctx.fillText(text, 210, 43);
+  ctx.fillText(text, 192, 34);
 
   const tex = new THREE.CanvasTexture(c);
   tex.colorSpace = THREE.SRGBColorSpace;
-  const mat = new THREE.SpriteMaterial({ map: tex, transparent: true, depthTest: false });
+  const mat = new THREE.SpriteMaterial({
+    map: tex,
+    transparent: true,
+    depthTest: true,
+    depthWrite: false
+  });
   const sprite = new THREE.Sprite(mat);
-  sprite.scale.set(1.75, 0.36, 1);
-  sprite.position.set(0, 2.22, 0);
-  sprite.renderOrder = 10;
+  if (isPedri) {
+    sprite.scale.set(0.70, 0.175, 1);
+    sprite.position.set(0, 2.02, 0);
+  } else {
+    sprite.scale.set(0.58, 0.145, 1);
+    sprite.position.set(0, 1.98, 0);
+  }
+  sprite.renderOrder = 6;
   return sprite;
 }
 
 function createScanCone() {
-  const geo = new THREE.ConeGeometry(2.6, 6.4, 28, 1, true);
+  const geo = new THREE.ConeGeometry(2.4, 5.8, 28, 1, true);
   geo.rotateX(-Math.PI / 2);
-  geo.translate(0, 0, 3.2);
+  geo.translate(0, 0, 2.9);
   const mat = new THREE.MeshBasicMaterial({
     color: 0x38bdf8,
     transparent: true,
-    opacity: 0.14,
+    opacity: 0.12,
     side: THREE.DoubleSide,
     depthWrite: false
   });
   const mesh = new THREE.Mesh(geo, mat);
-  mesh.position.set(0, 1.62, 0);
+  mesh.position.set(0, 1.60, 0);
   mesh.visible = false;
   return mesh;
 }
@@ -136,8 +154,8 @@ function createScanCone() {
 function createCoverShadowWedge() {
   const shape = new THREE.Shape();
   shape.moveTo(0, 0);
-  shape.lineTo(-2.3, -5.8);
-  shape.lineTo(2.3, -5.8);
+  shape.lineTo(-2.1, -5.4);
+  shape.lineTo(2.1, -5.4);
   shape.closePath();
 
   const geo = new THREE.ShapeGeometry(shape);
@@ -145,31 +163,31 @@ function createCoverShadowWedge() {
   const mat = new THREE.MeshBasicMaterial({
     color: 0xef4444,
     transparent: true,
-    opacity: 0.18,
+    opacity: 0.15,
     side: THREE.DoubleSide,
     depthWrite: false
   });
   const mesh = new THREE.Mesh(geo, mat);
-  mesh.position.y = 0.025;
+  mesh.position.y = 0.022;
   mesh.visible = false;
   return mesh;
 }
 
 function createPlayerGroundRing(role) {
-  const inner = role === 'pedri' ? 0.44 : 0.36;
-  const outer = role === 'pedri' ? 0.56 : 0.44;
+  const inner = role === 'pedri' ? 0.30 : 0.23;
+  const outer = role === 'pedri' ? 0.37 : 0.28;
   const geo = new THREE.RingGeometry(inner, outer, 40);
   geo.rotateX(-Math.PI / 2);
   const color = role === 'pedri' ? 0xfacc15 : role === 'teammate' ? 0x38bdf8 : 0xf87171;
   const mat = new THREE.MeshBasicMaterial({
     color,
     transparent: true,
-    opacity: role === 'pedri' ? 0.85 : 0.42,
+    opacity: role === 'pedri' ? 0.86 : 0.36,
     side: THREE.DoubleSide,
     depthWrite: false
   });
   const mesh = new THREE.Mesh(geo, mat);
-  mesh.position.y = 0.018;
+  mesh.position.y = 0.016;
   return mesh;
 }
 
@@ -231,7 +249,7 @@ export function attachRiggedSkinnedModel(playerModel) {
   const cloneRoot = SkeletonUtils.clone(sharedFootballerGltf.scene);
   cloneRoot.name = `Footballer_${playerModel.actorDef.id || playerModel.actorDef.role}`;
 
-  applyFootballerAppearance(cloneRoot, playerModel.actorDef, sharedHairMesh, sharedBeardMesh);
+  applyFootballerAppearance(cloneRoot, playerModel.actorDef, sharedJerseyTopMesh, sharedAltHairMesh);
 
   const bones = {};
   cloneRoot.traverse((node) => {
@@ -388,13 +406,20 @@ export function updatePlayerPose(playerModel, state, overlaysConfig, ballWorldPo
   // Centripetal banking lean into cuts & forward sprint drive lean
   bodyPivot.rotation.set(state.leanPitch || 0, 0, state.leanRoll || 0);
 
-  // Overlays visibility
-  labelSprite.visible = Boolean(overlaysConfig.showLabels);
+  // Overlays visibility (hide bystander labels in close-up cameras so they never block Pedri)
+  const isPedri = playerModel.actorDef.role === 'pedri';
+  if (overlaysConfig.cameraMode === 'ankle') {
+    labelSprite.visible = false;
+  } else if (overlaysConfig.cameraMode === 'pedri') {
+    labelSprite.visible = Boolean(overlaysConfig.showLabels && isPedri);
+  } else {
+    labelSprite.visible = Boolean(overlaysConfig.showLabels);
+  }
   if (skeletonHelper) {
     skeletonHelper.visible = Boolean(overlaysConfig.showSkeleton);
   }
 
-  if (playerModel.actorDef.role === 'pedri') {
+  if (isPedri) {
     const showScan = Boolean(overlaysConfig.showScan && Math.abs(state.scanYaw || 0) > 0.08);
     scanCone.visible = showScan;
     if (showScan) {
@@ -439,28 +464,29 @@ export function updatePlayerPose(playerModel, state, overlaysConfig, ballWorldPo
     primaryTime = ((state.tSec || 0) * sel.rate + (playerModel.actorDef.phaseSeed || 0)) % dur;
   }
 
-  // Reset all action weights cleanly for deterministic scrub-safe frame evaluation
+  const actA = actions[primaryId] || actions.idle_ready;
+  const actB = secondaryId && blendW > 0.01 && actions[secondaryId] !== actA ? actions[secondaryId] : null;
+
+  // Stop any previously active actions that are not part of this frame's blend
   for (const key in actions) {
     const act = actions[key];
-    if (act.enabled) {
-      act.enabled = false;
-      act.setEffectiveWeight(0);
+    if (act !== actA && act !== actB && act.isScheduled()) {
+      act.stop();
     }
   }
 
-  const actA = actions[primaryId] || actions.idle_ready;
-  const actB = secondaryId && blendW > 0.01 ? actions[secondaryId] : null;
-
   if (actA) {
     const durA = Math.max(0.05, actA.getClip().duration);
+    if (!actA.isScheduled()) actA.play();
     actA.enabled = true;
     actA.setEffectiveTimeScale(0);
     actA.setEffectiveWeight(actB ? 1 - blendW : 1);
     actA.time = actA.loop === THREE.LoopRepeat ? ((primaryTime % durA) + durA) % durA : THREE.MathUtils.clamp(primaryTime, 0, durA - 0.001);
   }
 
-  if (actB && actB !== actA) {
+  if (actB) {
     const durB = Math.max(0.05, actB.getClip().duration);
+    if (!actB.isScheduled()) actB.play();
     actB.enabled = true;
     actB.setEffectiveTimeScale(0);
     actB.setEffectiveWeight(blendW);
@@ -500,11 +526,11 @@ export function updatePlayerPose(playerModel, state, overlaysConfig, ballWorldPo
     bones.LeftToeBase.getWorldPosition(_vToeL);
     bones.RightToeBase.getWorldPosition(_vToeR);
     const minToeY = Math.min(_vToeL.y, _vToeR.y);
-    cloneRoot.position.y = THREE.MathUtils.clamp(0.022 - minToeY, -0.18, 0.16);
+    cloneRoot.position.y = THREE.MathUtils.clamp(0.022 - minToeY, -0.48, 0.48);
     root.updateMatrixWorld(true);
   }
 
-  // Exact Ball-Surface Ankle/Boot IK during annotated touch frames
+  // Exact Ball-Surface Ankle/Boot IK during annotated touch frames (r = 0.115m FIFA Size-5 ball)
   let activeFootLabel = '双足光学步态接地锁死';
   let ankleEverDeg = 0;
   if (state.ballTouch && state.ballTouch.weight > 0.02 && ballWorldPos) {
@@ -514,15 +540,33 @@ export function updatePlayerPose(playerModel, state, overlaysConfig, ballWorldPo
     const leg = isRight ? bones.RightLeg : bones.LeftLeg;
     const foot = isRight ? bones.RightFoot : bones.LeftFoot;
 
-    _vFootTargetWorld.copy(ballWorldPos);
-    if (bt.type === 'sole') {
-      _vFootTargetWorld.y = ballWorldPos.y + 0.13;
+    let dxB = state.x - ballWorldPos.x;
+    let dzB = state.z - ballWorldPos.z;
+    const dHoriz = Math.hypot(dxB, dzB);
+    if (dHoriz > 0.02) {
+      dxB /= dHoriz;
+      dzB /= dHoriz;
     } else {
-      // Offset slightly so inner/outer boot leather touches ball surface cleanly
-      _vFootTargetWorld.y = Math.max(0.08, ballWorldPos.y + 0.01);
+      dxB = -Math.sin(state.yaw);
+      dzB = -Math.cos(state.yaw);
     }
 
-    solveTwoBoneLegIK(upLeg, leg, _vFootTargetWorld, bt.weight * 0.78);
+    if (bt.type === 'sole') {
+      _vFootTargetWorld.set(
+        ballWorldPos.x + dxB * 0.055,
+        ballWorldPos.y + 0.135,
+        ballWorldPos.z + dzB * 0.055
+      );
+    } else {
+      // Offset radially by 0.15m (ball radius 0.115m + boot width 0.035m) so cleat touches leather without clipping
+      _vFootTargetWorld.set(
+        ballWorldPos.x + dxB * 0.15,
+        Math.max(0.075, ballWorldPos.y),
+        ballWorldPos.z + dzB * 0.15
+      );
+    }
+
+    solveTwoBoneLegIK(upLeg, leg, _vFootTargetWorld, bt.weight * 0.74);
 
     const typeCn =
       bt.type === 'inside'

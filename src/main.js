@@ -772,7 +772,8 @@ function evaluateFrame(dt) {
       hudMocapBadgeEl.textContent = `Mocap Clip: ${clipId} (100%) · Frame ${Math.round(currentSec * 60)}/${Math.round(dur * 60)}`;
     }
 
-    matchBall.position.set(0.22, 0.24, 8.48);
+    matchBall.position.set(0.18, 0.115, 8.38);
+    overlaysConfig.cameraMode = 'ankle';
 
     if (showcasePedriActor) {
       const isKickOrPass = clipId.includes('pass') || clipId.includes('through') || clipId.includes('shot') || clipId.includes('kick');
@@ -801,14 +802,14 @@ function evaluateFrame(dt) {
 
     if (cameraMode !== 'free') {
       if (cameraMode === 'ankle') {
-        desiredCamTarget.set(0.05, 0.52, 8.2);
-        desiredCamPos.set(2.1, 0.95, 10.4);
+        desiredCamTarget.set(0.05, 0.45, 8.15);
+        desiredCamPos.set(1.85, 0.78, 9.95);
       } else if (cameraMode === 'topdown') {
         desiredCamTarget.set(0, 0.5, 8.0);
         desiredCamPos.set(0.01, 12.0, 8.8);
       } else {
-        desiredCamTarget.set(0, 0.96, 8.0);
-        desiredCamPos.set(3.2, 1.85, 11.6);
+        desiredCamTarget.set(0, 0.94, 8.0);
+        desiredCamPos.set(2.95, 1.72, 11.2);
       }
       applyCameraSmoothing(34);
     } else {
@@ -858,14 +859,14 @@ function evaluateFrame(dt) {
     r.visible = overlaysConfig.showTrajectories;
   });
 
-  matchBall.position.set(evalState.ballState.x, evalState.ballState.y ?? 0.24, evalState.ballState.z);
+  matchBall.position.set(evalState.ballState.x, evalState.ballState.y ?? 0.115, evalState.ballState.z);
   const ballMoveDist = Math.hypot(
     matchBall.position.x - prevBallPos.x,
     matchBall.position.z - prevBallPos.z
   );
   if (ballMoveDist > 0.001 && ballMoveDist < 2.0) {
-    matchBall.rotation.x -= ballMoveDist * 3.6;
-    matchBall.rotation.z += ballMoveDist * 2.1;
+    matchBall.rotation.x -= ballMoveDist * 6.8;
+    matchBall.rotation.z += ballMoveDist * 4.2;
   }
   prevBallPos.copy(matchBall.position);
 
@@ -881,6 +882,7 @@ function evaluateFrame(dt) {
     }
   });
 
+  overlaysConfig.cameraMode = cameraMode;
   activeActors.forEach((actorObj, idx) => {
     const st = evalState.actorStates[idx];
     if (actorObj.def.role === 'defender' && pedriState) {

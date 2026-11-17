@@ -39,7 +39,7 @@ export const CLUB_KIT_PRESETS = {
     primary: '#dff21b',
     secondary: '#c5d90d',
     accent: '#111827',
-    shorts: '#dff21b',
+    shorts: '#111827',
     socks: '#dff21b',
     sockBand: '#111827',
     numColor: '#111827'
@@ -138,24 +138,23 @@ function getBackPrintTexture(numberStr = '8', nameStr = 'PEDRI', numColor = '#fa
   const ctx = canvas.getContext('2d');
   ctx.clearRect(0, 0, 512, 512);
 
-  // Subtle dark outline for legibility over striped kits
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
   ctx.lineJoin = 'round';
 
   if (nameStr) {
-    ctx.font = '800 58px "Inter", "Arial Black", sans-serif';
-    ctx.lineWidth = 12;
-    ctx.strokeStyle = 'rgba(8, 12, 24, 0.85)';
-    ctx.strokeText(nameStr.toUpperCase(), 256, 98);
+    ctx.font = '800 54px "Inter", "Arial Black", sans-serif';
+    ctx.lineWidth = 11;
+    ctx.strokeStyle = 'rgba(8, 12, 24, 0.88)';
+    ctx.strokeText(nameStr.toUpperCase(), 256, 90);
     ctx.fillStyle = numColor;
-    ctx.fillText(nameStr.toUpperCase(), 256, 98);
+    ctx.fillText(nameStr.toUpperCase(), 256, 90);
   }
 
   if (numberStr) {
-    ctx.font = '900 280px "Inter", "Impact", "Arial Black", sans-serif';
-    ctx.lineWidth = 18;
-    ctx.strokeStyle = 'rgba(8, 12, 24, 0.88)';
+    ctx.font = '900 272px "Inter", "Impact", "Arial Black", sans-serif';
+    ctx.lineWidth = 16;
+    ctx.strokeStyle = 'rgba(8, 12, 24, 0.9)';
     ctx.strokeText(String(numberStr), 256, 305);
     ctx.fillStyle = numColor;
     ctx.fillText(String(numberStr), 256, 305);
@@ -179,10 +178,9 @@ function resolveKitPreset(actorDef) {
 }
 
 /**
- * Jersey shader preserving baked cloth normalMap from footballer.glb:
- * - Short sleeves with sleeve cuff + natural forearm skin + optional wrist tape
- * - Club pattern (vertical stripes / central PSG band / diagonal sash / solid)
- * - Crisp back number & player name print on upper back
+ * Crew-neck fitted short-sleeve football jersey material
+ * Geometry bounds on Wolf3D_Outfit_Top (footballer_jersey.glb):
+ *   x in [-0.297, +0.297], y in [1.031, 1.570], z in [-0.133, +0.157]
  */
 function createJerseyTopMaterial(origMat, preset, actorDef) {
   const isPedri = actorDef.role === 'pedri';
@@ -199,8 +197,8 @@ function createJerseyTopMaterial(origMat, preset, actorDef) {
       : 0;
 
   const mat = new THREE.MeshStandardMaterial({
-    roughness: 0.62,
-    metalness: 0.04,
+    roughness: 0.64,
+    metalness: 0.03,
     normalMap: origMat && origMat.normalMap ? origMat.normalMap : null,
     normalScale: new THREE.Vector2(0.85, 0.85)
   });
@@ -209,21 +207,21 @@ function createJerseyTopMaterial(origMat, preset, actorDef) {
     shader.uniforms.uCol1 = { value: new THREE.Color(preset.primary) };
     shader.uniforms.uCol2 = { value: new THREE.Color(preset.secondary) };
     shader.uniforms.uAccent = { value: new THREE.Color(preset.accent) };
-    shader.uniforms.uSkin = { value: new THREE.Color(actorDef.skinTone || '#d69a78') };
     shader.uniforms.uPattern = { value: patternCode };
     shader.uniforms.uPrintTex = { value: printTex };
-    shader.uniforms.uWristTape = { value: isPedri || actorDef.wristTape ? 1.0 : 0.0 };
 
     shader.vertexShader = shader.vertexShader
       .replace(
         '#include <common>',
         `#include <common>
-         varying vec3 vBindPos;`
+         varying vec3 vBindPos;
+         varying vec3 vBindNormal;`
       )
       .replace(
         '#include <begin_vertex>',
         `#include <begin_vertex>
-         vBindPos = position;`
+         vBindPos = position;
+         vBindNormal = normal;`
       );
 
     shader.fragmentShader = shader.fragmentShader
@@ -233,11 +231,10 @@ function createJerseyTopMaterial(origMat, preset, actorDef) {
          uniform vec3 uCol1;
          uniform vec3 uCol2;
          uniform vec3 uAccent;
-         uniform vec3 uSkin;
          uniform int uPattern;
          uniform sampler2D uPrintTex;
-         uniform float uWristTape;
-         varying vec3 vBindPos;`
+         varying vec3 vBindPos;
+         varying vec3 vBindNormal;`
       )
       .replace(
         '#include <color_fragment>',
@@ -246,49 +243,41 @@ function createJerseyTopMaterial(origMat, preset, actorDef) {
          float by = vBindPos.y;
          float bz = vBindPos.z;
 
-         // Base club jersey pattern on torso & upper sleeves
          vec3 kitCol = uCol1;
          if (uPattern == 1) {
-           // Vertical Blaugrana / Atleti stripes (cleaner solid box on back for number readability)
-           float st = step(0.0, sin(vBindPos.x * 46.0));
+           // Authentic 3-stripe Blaugrana / Atleti vertical stripes across torso
+           float st = step(0.0, sin(vBindPos.x * 42.0));
            kitCol = mix(uCol1, uCol2, st);
          } else if (uPattern == 2) {
-           // PSG Hechter central vertical red stripe with white pin-borders
-           if (ax < 0.048) kitCol = uCol2;
-           else if (ax < 0.058) kitCol = uAccent;
+           // PSG Hechter central vertical red stripe + white pin-borders
+           if (ax < 0.046) kitCol = uCol2;
+           else if (ax < 0.056) kitCol = uAccent;
          } else if (uPattern == 3) {
-           // Rayo diagonal red sash
-           float diag = vBindPos.x + (by - 1.28) * 0.55;
-           if (abs(diag) < 0.055) kitCol = uCol2;
+           // Rayo Vallecano diagonal red sash on front
+           float diag = vBindPos.x + (by - 1.30) * 0.52;
+           if (abs(diag) < 0.048) kitCol = uCol2;
          }
 
-         // Collar & hem accent trim
-         if (by > 1.565 && ax < 0.11) {
+         // Crew-neck collar trim & short-sleeve cuff trim
+         if ((by > 1.535 && ax < 0.105) || ax > 0.275) {
            kitCol = uAccent;
          }
 
-         // Chest crest accent on front-left chest
-         if (bz > 0.21 && vBindPos.x > 0.045 && vBindPos.x < 0.095 && by > 1.39 && by < 1.45) {
-           kitCol = uAccent;
+         // Front-left club crest shield & front-right manufacturer mark
+         if (vBindNormal.z > 0.25 && bz > 0.02) {
+           if (vBindPos.x > 0.045 && vBindPos.x < 0.082 && by > 1.385 && by < 1.430) {
+             kitCol = uAccent;
+           } else if (vBindPos.x < -0.048 && vBindPos.x > -0.078 && by > 1.402 && by < 1.416) {
+             kitCol = uAccent;
+           }
          }
 
-         // Back Squad Number & Player Surname (bindPos.z < 0.095 faces backward on footballer.glb)
-         if (bz < 0.095 && ax < 0.145 && by > 1.18 && by < 1.53) {
-           // Note: looking from behind (+X is left, -X is right -> flip U so digits read left-to-right!)
-           float u = 0.5 - (vBindPos.x / 0.29);
-           float v = (by - 1.18) / 0.35;
+         // Back Squad Number & Surname — strictly on back-facing jersey polygons
+         if (vBindNormal.z < -0.25 && bz < -0.015 && ax < 0.135 && by > 1.16 && by < 1.50) {
+           float u = 0.5 - (vBindPos.x / 0.27);
+           float v = (by - 1.16) / 0.34;
            vec4 pr = texture2D(uPrintTex, clamp(vec2(u, v), 0.0, 1.0));
            kitCol = mix(kitCol, pr.rgb, pr.a);
-         }
-
-         // Short-sleeve cutoff at ax = 0.255 -> bare athletic forearms + optional white wrist tape
-         if (ax > 0.258) {
-           kitCol = uSkin;
-           if (uWristTape > 0.5 && ax > 0.435 && ax < 0.468) {
-             kitCol = vec3(0.95, 0.96, 0.98);
-           }
-         } else if (ax > 0.242) {
-           kitCol = uAccent;
          }
 
          diffuseColor.rgb = kitCol;`
@@ -299,22 +288,19 @@ function createJerseyTopMaterial(origMat, preset, actorDef) {
 }
 
 /**
- * Shorts + Bare Knees + High Football Socks material on Wolf3D_Outfit_Bottom (y in [0.147, 1.086])
+ * Tailored athletic football shorts on Wolf3D_Outfit_Bottom (y in [0.608, 1.102])
  */
-function createShortsAndSocksMaterial(origMat, preset, actorDef) {
+function createShortsMaterial(origMat, preset) {
   const mat = new THREE.MeshStandardMaterial({
-    roughness: 0.65,
-    metalness: 0.03,
+    roughness: 0.66,
+    metalness: 0.02,
     normalMap: origMat && origMat.normalMap ? origMat.normalMap : null,
-    normalScale: new THREE.Vector2(0.75, 0.75)
+    normalScale: new THREE.Vector2(0.7, 0.7)
   });
 
   mat.onBeforeCompile = (shader) => {
     shader.uniforms.uShorts = { value: new THREE.Color(preset.shorts) };
     shader.uniforms.uAccent = { value: new THREE.Color(preset.accent) };
-    shader.uniforms.uSkin = { value: new THREE.Color(actorDef.skinTone || '#d69a78') };
-    shader.uniforms.uSocks = { value: new THREE.Color(preset.socks) };
-    shader.uniforms.uSockBand = { value: new THREE.Color(preset.sockBand) };
 
     shader.vertexShader = shader.vertexShader
       .replace(
@@ -334,36 +320,15 @@ function createShortsAndSocksMaterial(origMat, preset, actorDef) {
         `#include <common>
          uniform vec3 uShorts;
          uniform vec3 uAccent;
-         uniform vec3 uSkin;
-         uniform vec3 uSocks;
-         uniform vec3 uSockBand;
          varying vec3 vBindPos;`
       )
       .replace(
         '#include <color_fragment>',
         `#include <color_fragment>
-         float by = vBindPos.y;
-         float ax = abs(vBindPos.x);
          vec3 col = uShorts;
-
-         if (by > 0.575) {
-           // Tailored football shorts + lateral stripe + bottom trim
-           col = uShorts;
-           if (by < 0.595 || ax > 0.185) {
-             col = mix(uShorts, uAccent, 0.85);
-           }
-         } else if (by > 0.435) {
-           // Athletic bare knees
-           col = uSkin;
-         } else {
-           // High club football socks + top turnover hoops
-           col = uSocks;
-           if (by > 0.395 && by <= 0.435) {
-             float hoop = step(0.0, sin(by * 220.0));
-             col = mix(uSocks, uSockBand, hoop);
-           }
+         if (vBindPos.y < 0.618 || abs(vBindPos.x) > 0.191) {
+           col = mix(uShorts, uAccent, 0.85);
          }
-
          diffuseColor.rgb = col;`
       );
   };
@@ -371,14 +336,95 @@ function createShortsAndSocksMaterial(origMat, preset, actorDef) {
   return mat;
 }
 
+/**
+ * Anatomical Body + Bare Arms + White Wrist Tape + Bare Knees + High Club Football Socks
+ * Geometry bounds on Wolf3D_Body (footballer.glb): y in [0.019, 1.379], |x| <= 0.531
+ */
+function createBodyAndSocksMaterial(origMat, preset, actorDef) {
+  const isPedri = actorDef.role === 'pedri';
+  const mat = new THREE.MeshStandardMaterial({
+    map: origMat && origMat.map ? origMat.map : null,
+    normalMap: origMat && origMat.normalMap ? origMat.normalMap : null,
+    roughness: 0.62,
+    metalness: 0.02
+  });
+
+  mat.onBeforeCompile = (shader) => {
+    shader.uniforms.uSkinTint = { value: new THREE.Color(actorDef.skinTint || '#ffffff') };
+    shader.uniforms.uJerseyUnder = { value: new THREE.Color(preset.primary) };
+    shader.uniforms.uSocks = { value: new THREE.Color(preset.socks) };
+    shader.uniforms.uSockBand = { value: new THREE.Color(preset.sockBand) };
+    shader.uniforms.uWristTape = { value: isPedri || actorDef.wristTape ? 1.0 : 0.0 };
+
+    shader.vertexShader = shader.vertexShader
+      .replace(
+        '#include <common>',
+        `#include <common>
+         varying vec3 vBindPos;`
+      )
+      .replace(
+        '#include <begin_vertex>',
+        `#include <begin_vertex>
+         vBindPos = position;`
+      );
+
+    shader.fragmentShader = shader.fragmentShader
+      .replace(
+        '#include <common>',
+        `#include <common>
+         uniform vec3 uSkinTint;
+         uniform vec3 uJerseyUnder;
+         uniform vec3 uSocks;
+         uniform vec3 uSockBand;
+         uniform float uWristTape;
+         varying vec3 vBindPos;`
+      )
+      .replace(
+        '#include <color_fragment>',
+        `#include <color_fragment>
+         float by = vBindPos.y;
+         float ax = abs(vBindPos.x);
+
+         // Apply optional player skin complexion tint to PBR skin texture
+         diffuseColor.rgb *= uSkinTint;
+
+         // Under-jersey inner torso guard (prevents any waist/chest skin poke-through during extreme twists)
+         if (by > 1.02 && by < 1.46 && ax < 0.21) {
+           diffuseColor.rgb = uJerseyUnder;
+         }
+
+         // Pedri signature white wrist tape on bare forearms
+         if (uWristTape > 0.5 && by > 0.72 && ax > 0.425 && ax < 0.462) {
+           diffuseColor.rgb = vec3(0.95, 0.96, 0.98);
+         }
+
+         // High Club Football Socks + Top Turnover Hoops hugging sculpted calves & shins (below knee y = 0.465)
+         if (by < 0.465 && ax < 0.22) {
+           vec3 sockCol = uSocks;
+           if (by > 0.422) {
+             float hoop = step(0.0, sin(by * 230.0));
+             sockCol = mix(uSocks, uSockBand, hoop);
+           }
+           diffuseColor.rgb = sockCol;
+         }`
+      );
+  };
+
+  return mat;
+}
+
+/**
+ * Sleek low-cut football cleats on Wolf3D_Outfit_Footwear (y in [0.009, 0.174])
+ */
 function createCleatsMaterial(origMat, actorDef) {
   const isPedri = actorDef.role === 'pedri';
-  const bootUpper = actorDef.bootColor || (isPedri ? '#f8fafc' : actorDef.role === 'teammate' ? '#38bdf8' : '#1e293b');
-  const bootSole = isPedri ? '#eab308' : '#f43f5e';
+  const bootUpper =
+    actorDef.bootColor || (isPedri ? '#f8fafc' : actorDef.role === 'teammate' ? '#38bdf8' : '#18181b');
+  const bootSole = isPedri ? '#eab308' : '#ef4444';
 
   const mat = new THREE.MeshStandardMaterial({
-    roughness: 0.36,
-    metalness: 0.18,
+    roughness: 0.34,
+    metalness: 0.16,
     normalMap: origMat && origMat.normalMap ? origMat.normalMap : null
   });
 
@@ -410,6 +456,10 @@ function createCleatsMaterial(origMat, actorDef) {
         '#include <color_fragment>',
         `#include <color_fragment>
          vec3 bCol = vBindPos.y < 0.032 ? uSole : uUpper;
+         // Diagonal 3-stripe boot accent on outer midfoot
+         if (vBindPos.y >= 0.032 && vBindPos.y < 0.105 && abs(vBindPos.z - 0.04) < 0.025 && abs(vBindPos.x) > 0.11) {
+           bCol = mix(bCol, uSole, 0.85);
+         }
          diffuseColor.rgb = bCol;`
       );
   };
@@ -418,10 +468,10 @@ function createCleatsMaterial(origMat, actorDef) {
 }
 
 /**
- * Applies photorealistic face/skin preservation + club kit shaders + short athletic hair
- * onto a cloned ReadyPlayerMe footballer hierarchy.
+ * Applies authentic footballer kit, face/skin PBR preservation, high socks, cleats,
+ * and native skull-aligned short athletic hair onto a cloned 67-bone footballer rig.
  */
-export function applyFootballerAppearance(cloneRoot, actorDef, hairSourceMesh, beardSourceMesh) {
+export function applyFootballerAppearance(cloneRoot, actorDef, jerseyTopSourceMesh, altHairSourceMesh) {
   const preset = resolveKitPreset(actorDef);
   let targetSkeleton = null;
 
@@ -439,67 +489,99 @@ export function applyFootballerAppearance(cloneRoot, actorDef, hairSourceMesh, b
     const mName = obj.name || '';
     const origMat = obj.material;
 
-    // Remove street glasses & cap from base visage avatar
-    if (mName.includes('Facewear') || mName.includes('Headwear')) {
+    if (mName.includes('Glasses') || mName.includes('Facewear') || mName.includes('Headwear')) {
       obj.visible = false;
       return;
     }
 
-    // Keep authentic photorealistic PBR eyes, teeth, head skin, and hand skin!
-    if (
-      mName.includes('Eye') ||
-      mName.includes('Teeth') ||
-      mName.includes('Head') ||
-      mName.includes('Body')
-    ) {
+    if (mName.includes('Eye') || mName.includes('Teeth')) {
+      return;
+    }
+
+    if (mName.includes('Head')) {
       if (origMat && origMat.clone) {
-        const clonedSkin = origMat.clone();
-        if (actorDef.skinTint && (mName.includes('Head') || mName.includes('Body'))) {
-          clonedSkin.color = new THREE.Color(actorDef.skinTint);
+        const clonedHead = origMat.clone();
+        if (actorDef.skinTint) {
+          clonedHead.color = new THREE.Color(actorDef.skinTint);
         }
-        obj.material = clonedSkin;
+        obj.material = clonedHead;
       }
       return;
     }
 
+    if (mName.includes('Hair')) {
+      if (actorDef.hairVariant === 2 && altHairSourceMesh) {
+        obj.visible = false;
+        return;
+      }
+      const hairCol = actorDef.hairColor || (actorDef.role === 'pedri' ? '#241811' : '#1b1512');
+      obj.material = new THREE.MeshStandardMaterial({
+        color: new THREE.Color(hairCol),
+        normalMap: origMat && origMat.normalMap ? origMat.normalMap : null,
+        roughness: 0.78,
+        metalness: 0.04
+      });
+      return;
+    }
+
+    if (mName.includes('Body')) {
+      obj.material = createBodyAndSocksMaterial(origMat, preset, actorDef);
+      return;
+    }
+
     if (mName.includes('Outfit_Top')) {
-      obj.material = createJerseyTopMaterial(origMat, preset, actorDef);
-    } else if (mName.includes('Outfit_Bottom')) {
-      obj.material = createShortsAndSocksMaterial(origMat, preset, actorDef);
-    } else if (mName.includes('Outfit_Footwear')) {
+      if (jerseyTopSourceMesh) {
+        // Hide polo collar shirt and bind true crew-neck football jersey mesh below
+        obj.visible = false;
+      } else {
+        obj.material = createJerseyTopMaterial(origMat, preset, actorDef);
+      }
+      return;
+    }
+
+    if (mName.includes('Outfit_Bottom')) {
+      obj.material = createShortsMaterial(origMat, preset);
+      return;
+    }
+
+    if (mName.includes('Outfit_Footwear')) {
       obj.material = createCleatsMaterial(origMat, actorDef);
     }
   });
 
-  // Bind realistic short athletic hair (and optional facial hair) onto the exact 67-bone Skeleton
-  if (targetSkeleton && hairSourceMesh) {
-    const hairClone = new THREE.SkinnedMesh(
-      hairSourceMesh.geometry,
-      new THREE.MeshStandardMaterial({
-        color: new THREE.Color(actorDef.hairColor || (actorDef.role === 'pedri' ? '#241811' : '#1b1613')),
-        roughness: 0.78,
-        metalness: 0.05
-      })
+  // Bind true crew-neck short-sleeve football jersey onto the exact 67-bone skeleton
+  if (targetSkeleton && jerseyTopSourceMesh) {
+    const jerseyClone = new THREE.SkinnedMesh(
+      jerseyTopSourceMesh.geometry,
+      createJerseyTopMaterial(jerseyTopSourceMesh.material, preset, actorDef)
     );
-    hairClone.name = 'Footballer_Hair';
-    hairClone.castShadow = true;
-    hairClone.frustumCulled = false;
-    hairClone.bind(targetSkeleton, hairSourceMesh.bindMatrix);
-    cloneRoot.add(hairClone);
+    jerseyClone.name = 'Footballer_CrewJersey';
+    jerseyClone.castShadow = true;
+    jerseyClone.receiveShadow = true;
+    jerseyClone.frustumCulled = false;
+    jerseyClone.bind(targetSkeleton, jerseyTopSourceMesh.bindMatrix);
+    cloneRoot.add(jerseyClone);
   }
 
-  if (targetSkeleton && beardSourceMesh && actorDef.hasBeard) {
-    const beardClone = new THREE.SkinnedMesh(
-      beardSourceMesh.geometry,
+  // Optional alternate hairstyle for squad visual diversity
+  if (targetSkeleton && altHairSourceMesh && actorDef.hairVariant === 2) {
+    const hairCol = actorDef.hairColor || '#1b1512';
+    const altHairClone = new THREE.SkinnedMesh(
+      altHairSourceMesh.geometry,
       new THREE.MeshStandardMaterial({
-        color: new THREE.Color(actorDef.hairColor || '#1b1613'),
-        roughness: 0.85,
-        metalness: 0.02
+        color: new THREE.Color(hairCol),
+        normalMap:
+          altHairSourceMesh.material && altHairSourceMesh.material.normalMap
+            ? altHairSourceMesh.material.normalMap
+            : null,
+        roughness: 0.78,
+        metalness: 0.04
       })
     );
-    beardClone.name = 'Footballer_Beard';
-    beardClone.frustumCulled = false;
-    beardClone.bind(targetSkeleton, beardSourceMesh.bindMatrix);
-    cloneRoot.add(beardClone);
+    altHairClone.name = 'Footballer_AltHair';
+    altHairClone.castShadow = true;
+    altHairClone.frustumCulled = false;
+    altHairClone.bind(targetSkeleton, altHairSourceMesh.bindMatrix);
+    cloneRoot.add(altHairClone);
   }
 }
