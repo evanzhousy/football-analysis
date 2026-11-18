@@ -19,18 +19,20 @@
       <div class="brand-group">
         <div id="brand-jersey-crest" class="jersey-crest" aria-hidden="true">8</div>
         <div class="brand-titles">
-          <h1>全位置抗逼抢与摆脱 3D 实验室 · 中场 × 前锋 × 后卫 × 1:1 实况帧同步</h1>
-          <p class="brand-subtitle">Babylon.js 7.54 引擎 + 一体成型零破洞 65 骨球员 + 32 组 Mixamo《Soccer Pack》+ 18 大直播吧主时钟同步</p>
+          <h1>全位置抗逼抢与摆脱 3D 实验室 · 白模 86 组足球原子动作库 × C2 惯性组装 × 1:1 实况对照</h1>
+          <p class="brand-subtitle">Babylon.js 7.54 + 65 骨白模素体 (1.0m 标定网格 + 左右足触地环) + 86 组 120Hz 光学原子动作库 + C2 惯性序列组装器</p>
         </div>
       </div>
 
-      <nav class="camera-toolbar" aria-label="Mixamo官方足球动捕库、骨骼透视与 3D 摄像机切换">
-        <select id="mocap-mode-select" class="mocap-select" aria-label="切换18大视频1:1同步场景或单独检阅32组Mixamo官方足球动捕库">
-          <option value="tactical">⚽ 实战视频 1:1 帧同步模式 (18大中场/前锋/后卫切片)</option>
+      <nav class="camera-toolbar" aria-label="白模足球原子动作库、素体模式与 3D 摄像机切换">
+        <select id="mocap-mode-select" class="mocap-select" aria-label="切换18大组装复杂动作场景或单独检阅86组白模足球原子动作库">
+          <option value="tactical">⚽ 组装复杂动作 × 实况视频 1:1 对照 (18大场景)</option>
         </select>
-        <button id="btn-xray-top" class="toggle-chip" type="button">65骨骼透视(X-Ray)</button>
-        <button id="btn-layout-split" class="toggle-chip active" type="button">实况视频+3D同屏</button>
-        <span class="toolbar-label" style="margin-left:4px;">机位</span>
+        <button id="btn-whitebox-top" class="toggle-chip whitebox-chip active" type="button" title="切换白模雕塑检阅模式（1.0m标定网格+左右脚触地支撑环）与实况球衣草皮模式，快捷键 [W]">🦴 白模检阅(W)</button>
+        <button id="btn-rootmotion-top" class="toggle-chip active" type="button" style="display:none;" title="原子动作库检阅时切换真实 Root Motion 位移与原地检阅">Root位移</button>
+        <button id="btn-xray-top" class="toggle-chip" type="button" title="快捷键 [X]">65骨透视</button>
+        <button id="btn-layout-split" class="toggle-chip active" type="button">视频+3D同屏</button>
+        <span class="toolbar-label" style="margin-left:2px;">机位</span>
         <button id="cam-broadcast" class="cam-btn active" data-cam="broadcast" type="button">转播对齐</button>
         <button id="cam-pedri" class="cam-btn" data-cam="pedri" type="button">主角肩后</button>
         <button id="cam-ankle" class="cam-btn" data-cam="ankle" type="button">足踝特写</button>
@@ -101,7 +103,7 @@
           <div id="local-video-box" class="local-video-loader" style="display:none;">
             <video id="local-video-el" controls playsinline loop style="display:none;"></video>
             <div id="local-video-prompt">
-              <p style="margin-bottom:8px;">导入其他本地比赛片段（MP4 / WebM），即可与右侧 Babylon.js 65 骨标准球员同步 0.25x/0.5x 慢速播放对比：</p>
+              <p style="margin-bottom:8px;">导入其他本地比赛片段（MP4 / WebM），即可与右侧 Babylon.js 65 骨白模组装球员同步慢放对比：</p>
               <label class="file-upload-label" for="local-video-input">选择本地比赛视频文件</label>
               <input id="local-video-input" type="file" accept="video/*" style="display:none;" />
             </div>
@@ -129,23 +131,24 @@
           <div class="phase-callout-box">
             <div class="phase-step-row">
               <span id="live-phase-badge" class="phase-badge">阶段1</span>
-              <span id="live-match-source" class="match-source-pill">Babylon.js 一体成型 65 骨球员 + 32 组 Mixamo《Soccer Pack》加载中...</span>
+              <span id="live-match-source" class="match-source-pill">白模 65 骨素体 + 86 组足球原子动作库加载中...</span>
             </div>
             <p id="live-phase-desc" class="phase-live-text"></p>
-            <div id="hud-mocap-badge" class="hud-mocap-pill">Mixamo Soccer Pack: 初始化 32 组官方足球动捕库...</div>
+            <div id="hud-mocap-badge" class="hud-mocap-pill">Atomic Soccer Lib: 初始化 86 组白模原子动作库...</div>
           </div>
 
           <div class="legend-box" aria-hidden="true">
-            <div class="legend-row"><span class="swatch" style="background:#facc15;"></span><span id="legend-hero-label">#8 佩德里 (一体成型零破洞)</span></div>
-            <div class="legend-row"><span class="swatch" style="background:#34d399;"></span>Mixamo 原生足球动捕姿态</div>
-            <div class="legend-row"><span class="swatch" style="background:#ef4444;"></span>对手逼抢 & 滑铲封堵</div>
+            <div class="legend-row"><span class="swatch" style="background:#eef2f6;border:1px solid #facc15;"></span><span id="legend-hero-label">#8 佩德里 (白模雕塑素体)</span></div>
+            <div class="legend-row"><span class="swatch" style="background:#22d3ee;"></span>左足(青) / <span class="swatch" style="background:#fb923c;display:inline-block;margin:0 3px;"></span>右足(橙) 触地支撑环</div>
+            <div class="legend-row"><span class="swatch" style="background:#7c8aa0;"></span>灰蓝防守白模 & 压迫阴影</div>
           </div>
         </div>
       </div>
     </main>
 
-    <!-- Bottom Playback & Phase Scrubber -->
-    <section class="timeline-dock" aria-label="战术动作时间轴与慢镜控制">
+    <!-- Bottom Playback, Action-Chain Assembly Strip & Phase Scrubber -->
+    <section class="timeline-dock" aria-label="原子动作拼接链与慢镜时间轴控制">
+      <div id="assembly-chain-strip" class="assembly-chain-strip" aria-label="当前复杂动作的原子动作组装链"></div>
       <div id="phase-pills-row" class="phase-pills-row"></div>
 
       <div class="transport-controls-row">
@@ -184,21 +187,21 @@
         <p id="insp-pressure" class="inspector-subtitle"></p>
       </div>
 
-      <!-- Live 65-Bone Mixamo Rig Telemetry -->
+      <!-- Live 65-Bone White-Model Atomic Assembler Telemetry -->
       <div class="inspector-section">
-        <span class="section-eyebrow">一体成型蒙皮与官方动捕遥测 (65-Bone Mixamo)</span>
+        <span class="section-eyebrow">白模素体与原子组装遥测 (65-Bone Optical)</span>
         <div class="rig-telemetry-box">
           <div class="rig-telemetry-line">
-            <span class="rig-telemetry-key">引擎与网格</span>
-            <span id="rig-bone-count" class="rig-telemetry-val">Babylon PBR · 65 Bones</span>
+            <span class="rig-telemetry-key">引擎与素体</span>
+            <span id="rig-bone-count" class="rig-telemetry-val">White-Model · 65 Bones</span>
           </div>
           <div class="rig-telemetry-line">
-            <span class="rig-telemetry-key">Mixamo 动作轨</span>
-            <span id="rig-active-clip" class="rig-telemetry-val">idle_ready</span>
+            <span class="rig-telemetry-key">当前原子段</span>
+            <span id="rig-active-clip" class="rig-telemetry-val">stance_ready</span>
           </div>
           <div class="rig-telemetry-line">
-            <span class="rig-telemetry-key">触球足踝状态</span>
-            <span id="rig-active-foot" class="rig-telemetry-val" style="color:var(--accent-gold);">双脚动态盘带支撑</span>
+            <span class="rig-telemetry-key">支撑足锚定状态</span>
+            <span id="rig-active-foot" class="rig-telemetry-val" style="color:var(--accent-gold);">L+R 双足扎地</span>
           </div>
           <div class="rig-telemetry-line">
             <span class="rig-telemetry-key">膝屈曲 / 踝俯仰·内外翻</span>
@@ -270,8 +273,9 @@
       </div>
 
       <div class="inspector-section">
-        <span class="section-eyebrow">3D 骨骼与战术辅助图层</span>
+        <span class="section-eyebrow">3D 白模、骨骼与战术辅助图层</span>
         <div class="overlay-toggles">
+          <button id="toggle-whitebox" class="toggle-chip whitebox-chip active" type="button">🦴 白模素体+1m网格</button>
           <button id="toggle-skeleton" class="toggle-chip" type="button">65骨骼透视(X-Ray)</button>
           <button id="toggle-scan" class="toggle-chip active" type="button">360° 扫描视野锥</button>
           <button id="toggle-shadow" class="toggle-chip active" type="button">防守压迫阴影</button>

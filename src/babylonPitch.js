@@ -233,7 +233,60 @@ export function createBabylonPitchEnvironment(scene) {
   buildGoalAtZ('Atk', -34, -1);
   buildGoalAtZ('Def', 50, 1);
 
-  return { pitchRoot, shadowGen };
+  // 6. Precision 1.0m x 1.0m White-Box Biomechanical Calibration Grid Material (4m x 4m repeating tile)
+  const gridTex = new BABYLON.DynamicTexture('WhiteBoxGridTex', { width: 512, height: 512 }, scene, true);
+  const gCtx = gridTex.getContext();
+  gCtx.fillStyle = '#131b26';
+  gCtx.fillRect(0, 0, 512, 512);
+  // 0.25m minor sub-ticks (32px)
+  gCtx.strokeStyle = 'rgba(148, 163, 184, 0.09)';
+  gCtx.lineWidth = 1;
+  for (let p = 0; p <= 512; p += 32) {
+    gCtx.beginPath(); gCtx.moveTo(p, 0); gCtx.lineTo(p, 512); gCtx.stroke();
+    gCtx.beginPath(); gCtx.moveTo(0, p); gCtx.lineTo(512, p); gCtx.stroke();
+  }
+  // 1.00m major grid lines (128px)
+  gCtx.strokeStyle = 'rgba(148, 163, 184, 0.26)';
+  gCtx.lineWidth = 2;
+  for (let p = 0; p <= 512; p += 128) {
+    gCtx.beginPath(); gCtx.moveTo(p, 0); gCtx.lineTo(p, 512); gCtx.stroke();
+    gCtx.beginPath(); gCtx.moveTo(0, p); gCtx.lineTo(512, p); gCtx.stroke();
+  }
+  // 4.00m tile accent border
+  gCtx.strokeStyle = 'rgba(56, 189, 248, 0.34)';
+  gCtx.lineWidth = 3;
+  gCtx.strokeRect(0, 0, 512, 512);
+  gridTex.update(false);
+  gridTex.wrapU = BABYLON.Texture.WRAP_ADDRESSMODE;
+  gridTex.wrapV = BABYLON.Texture.WRAP_ADDRESSMODE;
+  gridTex.uScale = (pitchW + 14) / 4.0; // 70m / 4m = 17.5 -> exact 1.00m squares!
+  gridTex.vScale = (pitchL + 16) / 4.0; // 100m / 4m = 25.0 -> exact 1.00m squares!
+  gridTex.anisotropicFilteringLevel = 8;
+
+  const whiteBoxFloorMat = new BABYLON.PBRMetallicRoughnessMaterial('WhiteBoxFloorPBR', scene);
+  whiteBoxFloorMat.baseTexture = gridTex;
+  whiteBoxFloorMat.metallic = 0.04;
+  whiteBoxFloorMat.roughness = 0.84;
+
+  function setWhiteBoxMode(enabled) {
+    if (enabled) {
+      turfMesh.material = whiteBoxFloorMat;
+      scene.clearColor = new BABYLON.Color4(0.055, 0.078, 0.112, 1.0);
+      scene.fogColor = new BABYLON.Color3(0.055, 0.078, 0.112);
+      hemiLight.groundColor = new BABYLON.Color3(0.20, 0.25, 0.32);
+      hemiLight.intensity = 1.02;
+      lineMat.alpha = 0.28;
+    } else {
+      turfMesh.material = turfMat;
+      scene.clearColor = new BABYLON.Color4(0.035, 0.058, 0.088, 1.0);
+      scene.fogColor = new BABYLON.Color3(0.035, 0.058, 0.088);
+      hemiLight.groundColor = new BABYLON.Color3(0.14, 0.28, 0.18);
+      hemiLight.intensity = 0.88;
+      lineMat.alpha = 0.84;
+    }
+  }
+
+  return { pitchRoot, shadowGen, setWhiteBoxMode };
 }
 
 /**

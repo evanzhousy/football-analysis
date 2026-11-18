@@ -52,10 +52,12 @@ body {
 .studio-shell {
   position: relative;
   width: 100vw;
+  max-width: 100vw;
   height: 100vh;
+  overflow: hidden;
   display: grid;
-  grid-template-columns: 310px 1fr 330px;
-  grid-template-rows: 58px 1fr auto;
+  grid-template-columns: 300px minmax(0, 1fr) 320px;
+  grid-template-rows: 58px minmax(0, 1fr) auto;
   grid-template-areas:
     "topbar topbar topbar"
     "sidebar viewport inspector"
@@ -66,10 +68,12 @@ body {
 .topbar {
   grid-area: topbar;
   z-index: 20;
+  min-width: 0;
+  overflow: hidden;
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 0 20px;
+  padding: 0 14px;
   background: linear-gradient(180deg, hsla(212, 26%, 9%, 0.96), hsla(212, 26%, 8%, 0.88));
   border-bottom: 1px solid var(--border-subtle);
   backdrop-filter: blur(14px);
@@ -78,12 +82,22 @@ body {
 .brand-group {
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: 10px;
+  min-width: 0;
+  flex: 1 1 0;
+  overflow: hidden;
+  margin-right: 12px;
+}
+
+.brand-titles {
+  min-width: 0;
+  overflow: hidden;
 }
 
 .jersey-crest {
   width: 34px;
   height: 34px;
+  flex-shrink: 0;
   border-radius: var(--radius-sm);
   background: linear-gradient(135deg, var(--accent-blau) 0%, var(--accent-blau) 48%, var(--accent-garnet) 52%, var(--accent-garnet) 100%);
   display: grid;
@@ -96,27 +110,34 @@ body {
 }
 
 .brand-titles h1 {
-  font-size: 15px;
+  font-size: 14px;
   font-weight: 700;
   letter-spacing: -0.01em;
   color: var(--text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .brand-subtitle {
-  font-size: 11.5px;
+  font-size: 11px;
   color: var(--text-secondary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .camera-toolbar {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 5px;
+  flex-shrink: 0;
 }
 
 .toolbar-label {
-  font-size: 11.5px;
+  font-size: 11px;
   color: var(--text-muted);
-  margin-right: 4px;
+  margin-right: 2px;
 }
 
 .cam-btn,
@@ -126,11 +147,12 @@ body {
   background: var(--bg-interactive);
   color: var(--text-secondary);
   font-family: inherit;
-  font-size: 12px;
+  font-size: 11.5px;
   font-weight: 500;
-  padding: 6px 11px;
+  padding: 5px 9px;
   border-radius: var(--radius-sm);
   cursor: pointer;
+  white-space: nowrap;
   transition: background 0.16s ease, color 0.16s ease, transform 0.12s ease;
 }
 
@@ -1115,5 +1137,87 @@ body {
 }
 
 .mocap-select {
-  max-width: 290px;
+  max-width: 235px;
+}
+
+/* White-Model Mode Chip & Live Action-Chain Assembly Strip */
+.toggle-chip.whitebox-chip.active {
+  background: hsla(199, 89%, 56%, 0.22);
+  color: #e0f2fe;
+  border-color: hsla(199, 89%, 64%, 0.58);
+  font-weight: 700;
+}
+
+.assembly-chain-strip {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  overflow-x: auto;
+  padding: 4px 2px 6px;
+  margin-bottom: 4px;
+  border-bottom: 1px dashed hsla(210, 20%, 88%, 0.10);
+  scrollbar-width: thin;
+}
+
+.assembly-chain-label {
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  font-weight: 700;
+  color: var(--accent-cyan);
+  white-space: nowrap;
+  padding: 2px 6px;
+  border-radius: 4px;
+  background: hsla(192, 86%, 56%, 0.12);
+  border: 1px solid hsla(192, 86%, 56%, 0.28);
+  flex-shrink: 0;
+}
+
+.assembly-node-btn {
+  appearance: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 8px;
+  border-radius: 5px;
+  border: 1px solid var(--border-subtle);
+  background: hsla(212, 22%, 15%, 0.85);
+  color: var(--text-secondary);
+  font-family: var(--font-sans);
+  font-size: 11px;
+  cursor: pointer;
+  white-space: nowrap;
+  flex-shrink: 0;
+  transition: background 0.14s ease, border-color 0.14s ease, color 0.14s ease;
+}
+
+.assembly-node-btn code {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: hsl(200, 80%, 74%);
+  background: hsla(212, 30%, 8%, 0.65);
+  padding: 1px 4px;
+  border-radius: 3px;
+}
+
+.assembly-node-btn:hover {
+  background: var(--bg-interactive-hover);
+  color: var(--text-primary);
+}
+
+.assembly-node-btn.active {
+  background: hsla(43, 92%, 56%, 0.20);
+  border-color: var(--accent-gold);
+  color: #fef08a;
+  font-weight: 600;
+}
+
+.assembly-node-btn.active code {
+  color: var(--accent-gold);
+}
+
+.assembly-arrow {
+  font-size: 10px;
+  color: var(--text-muted);
+  flex-shrink: 0;
+  user-select: none;
 }

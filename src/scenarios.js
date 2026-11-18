@@ -1,10 +1,8 @@
 import { MULTI_POSITION_SCENARIOS } from './scenariosMultiPos.js';
-import { VIDEO_CAPTURE_S01 } from './videoCaptureData_S01.js';
+import { ensureScenarioCompiledSequences, SCENARIO_ASSEMBLED_SEQUENCES } from './assembledSequences.js';
+import { sampleCompiledTrajectory } from './atomicMotionAssembler.js';
 
-// Map scenario IDs to video capture data (when available)
-const VIDEO_CAPTURE_MAP = {
-  'back-tight-half-turn': { actorId: 'pedri', data: VIDEO_CAPTURE_S01 },
-};
+export { SCENARIO_ASSEMBLED_SEQUENCES };
 
 function clamp(v, lo, hi) {
   return Math.max(lo, Math.min(hi, v));
@@ -448,7 +446,7 @@ function sampleCameraTrack(camTrack, tSec) {
 /**
  * Master 1:1 Frame-Accurate Evaluator at `tSec` (driven directly by `video.currentTime`).
  */
-export function evaluateScenarioAtTime(scenario, tSec) {
+export function evaluateScenarioAtTime(scenario, tSec, rigContext = null) {
   const dur = scenario.durationSec;
   const clampedT = clamp(tSec, 0, dur);
   const dtSample = 0.03;
@@ -475,10 +473,46 @@ export function evaluateScenarioAtTime(scenario, tSec) {
     }
   }
 
+  const compiledMap = ensureScenarioCompiledSequences(
+    scenario,
+    rigContext?.boneNames || null,
+    rigContext?.restRot || null
+  );
+
   const actorStates = scenario.actors.map((actorDef) => {
     const cur = sampleActorKeyframes(actorDef, clampedT);
     const prv = sampleActorKeyframes(actorDef, tPrev);
     const nxt = sampleActorKeyframes(actorDef, tNext);
+    const ballTouch = sampleTouchWindows(actorDef.touchWindows, clampedT);
+
+    // Priority 1: Multi-Clip C2-Inertialized Optical Atomic Sequence!
+    const compiledSequence = compiledMap ? compiledMap.get(actorDef.id) : null;
+    if (compiledSequence) {
+      const tr = sampleCompiledTrajectory(compiledSequence, clampedT);
+      return {
+        tSec: clampedT,
+        x: tr.x,
+        z: tr.z,
+        yaw: tr.facingYaw,
+        vx: tr.vx,
+        vz: tr.vz,
+        speed: tr.speed,
+        distMeters: 0,
+        gaitCycles: 0,
+        crouch: cur.crouch,
+        scanYaw: cur.scanYaw || 0,
+        shieldSide: cur.shieldSide,
+        showShadow: cur.showShadow,
+        leanRoll: 0,
+        leanPitch: 0,
+        compiledSequence,
+        activeSegmentIndex: tr.segIdx,
+        activeSegment: tr.seg,
+        ballTouch,
+        ballPos,
+        ballVel
+      };
+    }
 
     const vx = (nxt.x - prv.x) * inv2Dt;
     const vz = (nxt.z - prv.z) * inv2Dt;
@@ -492,8 +526,6 @@ export function evaluateScenarioAtTime(scenario, tSec) {
       SPIN_OR_STUNT_CLIPS.has(activePrimary) ||
       SPIN_OR_STUNT_CLIPS.has(activeSecondary);
 
-    // Biomechanical hip-to-velocity alignment when running fast (eliminates sideways crab-sliding!)
-    // Any look-offset toward the ball is transferred naturally to neck/head `scanYaw`.
     let effectiveYaw = cur.yaw;
     let effectiveScanYaw = cur.scanYaw || 0;
     if (!isSpinOrStunt && speed > 1.85) {
@@ -510,7 +542,6 @@ export function evaluateScenarioAtTime(scenario, tSec) {
       }
     }
 
-    // Centripetal banking lean into sharp turns + forward sprint drive pitch
     const dYaw = shortestAngleDiff(prv.yaw, nxt.yaw);
     const yawRate = dYaw * inv2Dt;
     const autoBankRoll = clamp(-yawRate * speed * 0.032, -0.22, 0.22);
@@ -518,7 +549,6 @@ export function evaluateScenarioAtTime(scenario, tSec) {
     const leanPitch = clamp(speed * 0.022, 0, 0.14);
 
     const gait = sampleActorGaitProgress(actorDef, dur, clampedT);
-    const ballTouch = sampleTouchWindows(actorDef.touchWindows, clampedT);
 
     return {
       tSec: clampedT,
@@ -546,24 +576,6 @@ export function evaluateScenarioAtTime(scenario, tSec) {
       ballVel
     };
   });
-
-  // Inject video capture data for actors with real video-extracted motion
-  const vcEntry = VIDEO_CAPTURE_MAP[scenario.id];
-  if (vcEntry && vcEntry.data) {
-    for (let i = 0; i < actorStates.length; i++) {
-      const actorDef = scenario.actors[i];
-      if (actorDef.id === vcEntry.actorId || actorDef.role === vcEntry.actorId) {
-        const vcFrame = vcEntry.data.getFrame(clampedT);
-        if (vcFrame) {
-          actorStates[i].videoCaptureFrame = vcFrame;
-          actorStates[i].videoCaptureWeight = 0.94; // 94% real HD video 3D mocap + 6% Mixamo base
-          if (vcFrame.ws && typeof vcFrame.y === 'number' && vcFrame.c > 0.02) {
-            actorStates[i].yaw = lerpAngle(actorStates[i].yaw, vcFrame.y, clamp01(vcFrame.c * 0.92));
-          }
-        }
-      }
-    }
-  }
 
   const cam = sampleCameraTrack(scenario.camTrack, clampedT);
 
@@ -595,10 +607,10 @@ const PEDRI_SCENARIOS = [
     index: '01',
     durationSec: 4.0,
     title: '背身紧贴顶防 · 沉肩顺球半转身',
-    moveName: '回头预扫描 + 右足凌空缓冲顺球半转身 (Scan & Aerial Cushion Half-Turn)',
-    zoneTag: '中圈前沿 (4.00s 原片3D动捕)',
-    matchRef: '直播吧原片 1:1 帧同步 + MediaPipe Heavy 3D 视频动捕：2025-04-23 巴萨 vs 马略卡 (4.00s)',
-    pressureType: '黄衣 #30 紧贴顶防 + #5 侧翼封堵',
+    moveName: '回头预扫描 + 弓步凌空卸高球 + 紧凑急转爆发 (5段光学原子组装)',
+    zoneTag: '中圈前沿 (4.00s 白模组装)',
+    matchRef: '直播吧原片 1:1 帧同步 × 120Hz 光学白模原子库 5 段 C2 惯性组装：2025-04-23 巴萨 vs 马略卡 (4.00s)',
+    pressureType: '黄衣 #30 紧贴顶防急刹失位 + #5 侧翼封堵',
     metrics: {
       touches: '2.28s 右足凌空卸球 + 2.72s 左足趟顺',
       feintAngle: '提前敞髋顺时针半转身推进',
@@ -606,15 +618,15 @@ const PEDRI_SCENARIOS = [
       escapeWindow: '1.95s–2.75s (0.80s)'
     },
     keypoints: [
-      '0.00s–1.65s：后场左路 #5 伊尼戈高空球挑入中圈前沿，#8 佩德里迎球回撤并连续扭头扫描，提前顺时针敞开骨盆卡住马略卡黄衣 #30 身位。',
-      '1.95s–2.52s（原片 3D 视频动捕直驱）：高空球从左后方坠落瞬间，佩德里大跨步弓步前压、左脚稳扎草皮作轴、右臂向右侧水平张开维持平衡，右腿（#8 裤印侧）向后屈膝抬起（t = 2.28s, y ≈ 0.35m）柔和卸顺高球！',
-      '2.60s–4.00s：皮球于 2.52s 落地弹顺，马略卡 #30 重心前冲失位，佩德里顺势完成顺时针转身，胸口朝向右前方大步加速突进打穿首线。'
+      '0.00s–1.65s（loco_walk_back ➔ turn_shield_pivot_90_r）：#8 佩德里迎高球背身回撤并连续扭头扫描，提前顺时针敞髋卡住马略卡 #30 身位。',
+      '1.65s–2.48s（touch_aerial_lunge_r 120Hz 光学动捕）：高球坠落瞬间，大跨步弓步前压、左脚稳扎草皮作轴，右足柔和凌空缓冲坠落高球（t = 2.28s）！',
+      '2.48s–4.00s（turn_tight_r ➔ loco_ball_run_fast C2 惯性拼接）：马略卡 #30 触发 def_press_brake_r 冲过头急刹失位，佩德里顺时针紧凑急转无缝衔接高速持球突进！'
     ],
     phases: [
       { timeRange: [0.0, 1.25], label: '0.0–1.25s 迎高球回撤扫描', desc: '左路高空球吊入镜头，佩德里回撤卡位并扭头扫描马略卡 #30 上抢路线。' },
-      { timeRange: [1.25, 1.95], label: '1.25–1.95s 提前敞髋卡位', desc: '高球下落前佩德里提前顺时针敞开髋部、张开右臂稳住重心，左臂感知 #30 贴防。' },
-      { timeRange: [1.95, 2.75], label: '1.95–2.75s 原片动捕凌空顺球', desc: '左脚前跨扎稳作轴、右臂外展平衡，2.28s 抬右腿向后屈膝缓冲坠落高球，2.52s 球落草皮顺势转身！' },
-      { timeRange: [2.75, 4.0], label: '2.75–4.0s 爆发推进甩开', desc: '#30 刹不住车被甩在身后，佩德里大步冲刺向右前方推进完成摆脱。' }
+      { timeRange: [1.25, 1.95], label: '1.25–1.95s 提前敞髋卡位', desc: '高球下落前佩德里提前顺时针敞开髋部、张开手臂稳住重心，感知 #30 贴防。' },
+      { timeRange: [1.95, 2.75], label: '1.95–2.75s 弓步凌空卸高球', desc: '左脚前跨扎稳作轴，2.28s 右足凌空柔和卸顺高球，C2 惯性衔接顺时针紧凑急转！' },
+      { timeRange: [2.75, 4.0], label: '2.75–4.0s 爆发推进甩开', desc: '#30 扑空急刹被甩在身后，佩德里切换高速持球突进打穿首线。' }
     ],
     defaultFocus: [1.9, 0, 6.2],
     camTrack: [
@@ -721,15 +733,15 @@ const PEDRI_SCENARIOS = [
       { t: 0.20, x: 0.90, y: 0.14, z: 16.22 },
       { t: 1.12, x: 1.18, y: 2.75, z: 11.85, arcY: 0.55 },
       { t: 1.80, x: 1.36, y: 1.88, z: 9.48, ease: 'linear' },
-      { t: 2.00, x: 1.40, y: 1.42, z: 9.06, ease: 'linear' },
-      { t: 2.28, x: 1.44, y: 0.35, z: 8.68, ease: 'linear' },
-      { t: 2.52, x: 1.72, y: 0.115, z: 8.32, ease: 'linear' },
+      { t: 2.00, x: 1.48, y: 1.28, z: 8.95, ease: 'linear' },
+      { t: 2.24, x: 1.56, y: 0.38, z: 8.66, ease: 'linear' },
+      { t: 2.52, x: 1.76, y: 0.115, z: 8.18, ease: 'linear' },
       { t: 2.74, x: 2.08, y: 0.115, z: 7.42 },
       { t: 3.30, x: 3.32, y: 0.115, z: 4.25 },
       { t: 4.0, x: 4.78, y: 0.115, z: 1.05 }
     ],
-    pedriRibbon: [[1.12, 0.06, 7.45], [1.34, 0.06, 8.55], [1.56, 0.06, 8.22], [2.15, 0.06, 6.95], [4.35, 0.06, 1.85]],
-    overshootRibbon: [[0.65, 0.05, 5.2], [0.62, 0.05, 8.62], [0.45, 0.05, 9.15]]
+    pedriRibbon: [[1.12, 0.06, 7.45], [1.40, 0.06, 8.48], [1.68, 0.06, 8.08], [2.72, 0.06, 5.65], [4.35, 0.06, 1.85]],
+    overshootRibbon: [[0.65, 0.05, 5.2], [0.56, 0.05, 7.88], [0.36, 0.05, 8.96]]
   },
 
   // ============================================================================

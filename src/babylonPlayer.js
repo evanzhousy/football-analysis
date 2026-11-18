@@ -1,11 +1,17 @@
 const BABYLON = window.BABYLON;
-import { preloadKitTextures, applyBabylonFootballerKit } from './babylonKit.js';
+import { preloadKitTextures, applyBabylonFootballerKit, applyBabylonMannequinClay } from './babylonKit.js';
 import {
   preloadMixamoSoccerLibrary,
   getMixamoClip,
   DISCRETE_SKILL_CLIPS,
   LOCOMOTION_CLIP_SPECS
 } from './mixamoSoccerLibrary.js';
+import {
+  preloadSoccerAtomicLibrary,
+  getAtomicClip,
+  sampleAtomicRootAtTime,
+  applyCompiledSequencePose
+} from './atomicMotionAssembler.js';
 import { applyVideoCaptureFrame } from './videoCaptureDriver.js';
 
 let sharedCharContainer = null;
@@ -76,7 +82,8 @@ function applyWorldDeltaToBoneNode(node, qWorldDelta) {
  * Preloads:
  * 1. Intact watertight 65-bone Adobe Mixamo footballer (`mixamo_footballer.glb`)
  * 2. Clean skin + high-sock UV masks (`clean_skin_atlas.png` + `body_zone_mask.png`)
- * 3. All 32 Official Adobe Mixamo《Soccer Pack》& Locomotion animations
+ * 3. All 86 Unified White-Model Football Atomic Clips (`assets/mocap_atomic/*.glb`)
+ * 4. Legacy 32 Mixamo clips for background off-ball actors
  */
 export function preloadBabylonAthleteRig(scene, onProgress) {
   if (rigPreloadPromise) return rigPreloadPromise;
@@ -91,9 +98,14 @@ export function preloadBabylonAthleteRig(scene, onProgress) {
   });
 
   const pKits = preloadKitTextures();
-  const pAnims = preloadMixamoSoccerLibrary(scene, onProgress);
+  const pLegacyAnims = preloadMixamoSoccerLibrary(scene);
+  const pAtomicAnims = preloadSoccerAtomicLibrary(scene, (done, total) => {
+    if (onProgress) onProgress(done, total, { id: 'mocap_atomic' });
+  });
 
-  rigPreloadPromise = Promise.all([pChar, pKits, pAnims]).then(() => sharedCharContainer);
+  rigPreloadPromise = Promise.all([pChar, pKits, pLegacyAnims, pAtomicAnims]).then(
+    () => sharedCharContainer
+  );
   return rigPreloadPromise;
 }
 
@@ -192,6 +204,33 @@ function createPlayerGroundRing(scene, role) {
   return ring;
 }
 
+function createFootContactRing(scene, name, hexColor) {
+  const innerR = 0.095;
+  const outerR = 0.145;
+  const segs = 28;
+  const p1 = [];
+  const p2 = [];
+  for (let i = 0; i <= segs; i++) {
+    const a = (i / segs) * Math.PI * 2;
+    p1.push(new BABYLON.Vector3(Math.cos(a) * innerR, 0.022, Math.sin(a) * innerR));
+    p2.push(new BABYLON.Vector3(Math.cos(a) * outerR, 0.022, Math.sin(a) * outerR));
+  }
+  const ring = BABYLON.MeshBuilder.CreateRibbon(
+    name,
+    { pathArray: [p1, p2], sideOrientation: BABYLON.Mesh.DOUBLESIDE },
+    scene
+  );
+  const mat = new BABYLON.StandardMaterial(`${name}_Mat`, scene);
+  mat.disableLighting = true;
+  mat.emissiveColor = BABYLON.Color3.FromHexString(hexColor);
+  mat.alpha = 0.88;
+  mat.backFaceCulling = false;
+  ring.material = mat;
+  ring.isPickable = false;
+  ring.setEnabled(false);
+  return ring;
+}
+
 function createVisionScanCone(scene) {
   // Translucent tactical 360-scan fan extending toward +Z from eye height
   const r = 5.6;
@@ -240,6 +279,21 @@ function createCoverShadowWedge(scene) {
   return wedge;
 }
 
+export function setPlayerWhiteModelMode(playerModel, enabled) {
+  const want = Boolean(enabled);
+  if (playerModel.whiteBoxMode === want) return;
+  playerModel.whiteBoxMode = want;
+  if (!playerModel.rigReady || !playerModel.meshes || playerModel.meshes.length === 0) return;
+
+  if (want) {
+    applyBabylonMannequinClay(playerModel.scene, playerModel.meshes, playerModel.actorDef, playerModel.shadowGen);
+  } else {
+    applyBabylonFootballerKit(playerModel.scene, playerModel.meshes, playerModel.actorDef, playerModel.shadowGen);
+    if (playerModel.footRingL) playerModel.footRingL.setEnabled(false);
+    if (playerModel.footRingR) playerModel.footRingR.setEnabled(false);
+  }
+}
+
 /**
  * Attaches the preloaded watertight 65-bone Mixamo footballer rig onto a player instance.
  */
@@ -257,7 +311,11 @@ export function attachBabylonAthleteRig(playerModel) {
   gltfRoot.parent = playerModel.posePivot;
 
   const meshes = gltfRoot.getChildMeshes(false);
-  applyBabylonFootballerKit(scene, meshes, actorDef, shadowGen);
+  if (playerModel.whiteBoxMode) {
+    applyBabylonMannequinClay(scene, meshes, actorDef, shadowGen);
+  } else {
+    applyBabylonFootballerKit(scene, meshes, actorDef, shadowGen);
+  }
 
   const skeleton = inst.skeletons[0] || null;
   const boneNodes = new Map();
@@ -302,6 +360,14 @@ export function createBabylonPlayer(scene, actorDef, shadowGen, parentNode = nul
   const groundRing = createPlayerGroundRing(scene, actorDef.role);
   groundRing.parent = root;
 
+  // World-space Foot-Plant Contact Rings (Cyan = Left Stance Foot, Orange = Right Stance Foot)
+  const footRingL = createFootContactRing(scene, `FootPlantL_${actorDef.id}`, '#22d3ee');
+  const footRingR = createFootContactRing(scene, `FootPlantR_${actorDef.id}`, '#fb923c');
+  if (parentNode) {
+    footRingL.parent = parentNode;
+    footRingR.parent = parentNode;
+  }
+
   const labelPlane = actorDef.label ? createOverheadLabelPlane(scene, actorDef.label, actorDef.role) : null;
   if (labelPlane) labelPlane.parent = root;
 
@@ -318,6 +384,9 @@ export function createBabylonPlayer(scene, actorDef, shadowGen, parentNode = nul
     root,
     posePivot,
     groundRing,
+    footRingL,
+    footRingR,
+    whiteBoxMode: false,
     labelPlane,
     scanCone,
     coverShadow,
@@ -329,19 +398,30 @@ export function createBabylonPlayer(scene, actorDef, shadowGen, parentNode = nul
     restRot: null,
     restPos: null,
     skeletonViewer: null,
-    activeMocapDebug: 'Mixamo Idle',
+    activeMocapDebug: 'Atomic Ready',
     telemetry: {
       boneCount: 65,
-      activeClip: 'idle_ready',
+      activeClip: 'stance_ready',
       activeFoot: '双脚动态支撑',
       kneeFlexDeg: 18,
       anklePitchDeg: 0,
-      ankleEversionDeg: 0
+      ankleEversionDeg: 0,
+      plantedFeet: 'L+R'
     },
     dispose() {
       if (this.skeletonViewer) {
         this.skeletonViewer.dispose();
         this.skeletonViewer = null;
+      }
+      if (this.footRingL) {
+        if (this.footRingL.material) this.footRingL.material.dispose();
+        this.footRingL.dispose();
+        this.footRingL = null;
+      }
+      if (this.footRingR) {
+        if (this.footRingR.material) this.footRingR.material.dispose();
+        this.footRingR.dispose();
+        this.footRingR = null;
       }
       if (this.skeleton) {
         this.skeleton.dispose();
@@ -547,28 +627,268 @@ function resolveStrideLockedLocomotion(actorDef, state) {
   };
 }
 
+function finalizeSkeletonXrayAndFootPlants(playerModel, state, overlaysConfig) {
+  const { boneNodes, footRingL, footRingR } = playerModel;
+  playerModel.root.computeWorldMatrix(true);
+  for (const tn of boneNodes.values()) {
+    tn.computeWorldMatrix(true);
+  }
+
+  // 1. True X-Ray 65-Bone Skeleton LineSystem
+  if (overlaysConfig.showSkeleton && playerModel.skeleton) {
+    if (!playerModel.bonePairs) {
+      const pairs = [];
+      for (const b of playerModel.skeleton.bones) {
+        const p = b.getParent();
+        const tnC = b.getTransformNode();
+        const tnP = p ? p.getTransformNode() : null;
+        if (tnC && tnP) {
+          pairs.push([tnP, tnC]);
+        }
+      }
+      playerModel.bonePairs = pairs;
+    }
+    const lines = playerModel.bonePairs.map(([tnP, tnC]) => [
+      tnP.getAbsolutePosition().clone(),
+      tnC.getAbsolutePosition().clone()
+    ]);
+    if (!playerModel.skeletonViewer) {
+      const ls = BABYLON.MeshBuilder.CreateLineSystem(
+        `XRayBones_${playerModel.actorDef.id}`,
+        { lines, updatable: true },
+        playerModel.scene
+      );
+      ls.color = isHeroRole(playerModel.actorDef.role)
+        ? new BABYLON.Color3(0.99, 0.84, 0.12)
+        : new BABYLON.Color3(0.22, 0.78, 0.98);
+      ls.renderingGroupId = 2;
+      ls.isPickable = false;
+      ls.alwaysSelectAsActiveMesh = true;
+      playerModel.skeletonViewer = ls;
+    } else {
+      BABYLON.MeshBuilder.CreateLineSystem(null, { lines, instance: playerModel.skeletonViewer });
+      playerModel.skeletonViewer.setEnabled(true);
+    }
+  } else if (playerModel.skeletonViewer) {
+    playerModel.skeletonViewer.setEnabled(false);
+  }
+
+  // 2. White-Model Foot-Plant Ground Contact Rings (Cyan = L planted, Orange = R planted)
+  const lFoot = boneNodes.get('mixamorig:LeftFoot');
+  const lToe = boneNodes.get('mixamorig:LeftToeBase');
+  const rFoot = boneNodes.get('mixamorig:RightFoot');
+  const rToe = boneNodes.get('mixamorig:RightToeBase');
+
+  let lPlanted = false;
+  let rPlanted = false;
+  if (lFoot) {
+    const fp = lFoot.getAbsolutePosition();
+    const tp = lToe ? lToe.getAbsolutePosition() : fp;
+    const effY = Math.min(fp.y, tp.y + 0.085);
+    lPlanted = effY <= 0.172;
+    if (footRingL) {
+      if (overlaysConfig.whiteBoxMode && lPlanted) {
+        footRingL.position.set((fp.x + tp.x) * 0.5, 0, (fp.z + tp.z) * 0.5);
+        footRingL.material.alpha = clamp((0.185 - effY) / 0.045, 0.32, 0.94);
+        footRingL.setEnabled(true);
+      } else {
+        footRingL.setEnabled(false);
+      }
+    }
+  }
+  if (rFoot) {
+    const fp = rFoot.getAbsolutePosition();
+    const tp = rToe ? rToe.getAbsolutePosition() : fp;
+    const effY = Math.min(fp.y, tp.y + 0.085);
+    rPlanted = effY <= 0.172;
+    if (footRingR) {
+      if (overlaysConfig.whiteBoxMode && rPlanted) {
+        footRingR.position.set((fp.x + tp.x) * 0.5, 0, (fp.z + tp.z) * 0.5);
+        footRingR.material.alpha = clamp((0.185 - effY) / 0.045, 0.32, 0.94);
+        footRingR.setEnabled(true);
+      } else {
+        footRingR.setEnabled(false);
+      }
+    }
+  }
+
+  playerModel.telemetry.plantedFeet =
+    lPlanted && rPlanted ? 'L+R 双足扎地' : lPlanted ? 'L 左足支撑锚定' : rPlanted ? 'R 右足支撑锚定' : '双足腾空摆动';
+
+  // 3. Joint angle telemetry
+  const rLeg = boneNodes.get('mixamorig:RightLeg');
+  const lLeg = boneNodes.get('mixamorig:LeftLeg');
+  const activeFootNode =
+    state.ballTouch && state.ballTouch.foot === 'L' ? lFoot : rFoot;
+
+  const kneeAngleRad = rLeg
+    ? 2 * Math.acos(clamp(Math.abs(rLeg.rotationQuaternion.w), 0, 1))
+    : 0.3;
+  const lKneeRad = lLeg
+    ? 2 * Math.acos(clamp(Math.abs(lLeg.rotationQuaternion.w), 0, 1))
+    : 0.3;
+  const ankleEu = activeFootNode ? activeFootNode.rotationQuaternion.toEulerAngles() : BABYLON.Vector3.Zero();
+
+  playerModel.telemetry.kneeFlexDeg = Math.round(((Math.max(kneeAngleRad, lKneeRad) * 180) / Math.PI));
+  playerModel.telemetry.anklePitchDeg = Math.round(((ankleEu.x * 180) / Math.PI) % 90);
+  playerModel.telemetry.ankleEversionDeg = Math.round(((ankleEu.z * 180) / Math.PI) % 45);
+}
+
 /**
- * Evaluates Mixamo《Soccer Pack》pose + Stride-Warped Locomotion BlendSpace + tactical overlays at exact `tSec`.
+ * Evaluates White-Model / Kit pose across:
+ *   A. 86-Clip White-Model Football Atomic Library Showcase (`state.atomicShowcaseClipId`)
+ *   B. C2-Inertialized Root-Motion Multi-Clip Assembled Sequence (`state.compiledSequence`)
+ *   C. Legacy Stride-Warped Locomotion BlendSpace (`getMixamoClip`)
  */
 export function updateBabylonPlayerPose(playerModel, state, overlaysConfig) {
   const { root, posePivot, groundRing, labelPlane, scanCone, coverShadow } = playerModel;
 
-  root.position.set(state.x, 0, state.z);
-  root.rotation.y = state.yaw || 0;
-
-  // Gentle centripetal body banking on sharp cuts (bounded strictly to ±9° on whole-body pivot, zero mesh distortion!)
-  posePivot.position.y = 0;
-  posePivot.rotation.z = clamp(state.leanRoll || 0, -0.15, 0.15);
-  posePivot.rotation.x = clamp((state.leanPitch || 0) * 0.55, -0.08, 0.10);
+  setPlayerWhiteModelMode(playerModel, Boolean(overlaysConfig.whiteBoxMode));
 
   if (labelPlane) {
     const hideInCloseUp = overlaysConfig.cameraMode === 'ankle';
     labelPlane.setEnabled(Boolean(overlaysConfig.showLabels && !hideInCloseUp));
   }
-
   if (groundRing) {
     groundRing.setEnabled(overlaysConfig.cameraMode !== 'ankle');
   }
+
+  if (!playerModel.rigReady) {
+    root.position.set(state.x || 0, 0, state.z || 0);
+    root.rotation.y = state.yaw || 0;
+    return;
+  }
+
+  const { boneNodes, restRot } = playerModel;
+
+  // ============================================================================
+  // BRANCH A: 86-Clip White-Model Football Atomic Library Showcase
+  // ============================================================================
+  if (state.atomicShowcaseClipId) {
+    const clip = getAtomicClip(state.atomicShowcaseClipId);
+    if (!clip) return;
+
+    const uSec = state.clipTime ?? state.tSec ?? 0;
+    const originX = state.originX ?? 0;
+    const originZ = state.originZ ?? 8.0;
+    const originYaw = state.originYaw ?? 0;
+
+    if (state.useRootMotion !== false) {
+      const rCur = sampleAtomicRootAtTime(clip, uSec);
+      const cy = Math.cos(originYaw);
+      const sy = Math.sin(originYaw);
+      root.position.set(
+        originX + rCur.x * cy + rCur.z * sy,
+        0,
+        originZ - rCur.x * sy + rCur.z * cy
+      );
+      root.rotation.y = originYaw + rCur.yaw;
+    } else {
+      root.position.set(originX, 0, originZ);
+      root.rotation.y = originYaw;
+    }
+    posePivot.position.y = 0;
+    posePivot.rotation.set(0, 0, 0);
+
+    if (scanCone) scanCone.setEnabled(false);
+    if (coverShadow) coverShadow.setEnabled(false);
+
+    const dur = Math.max(0.02, clip.duration);
+    const localSec = clip.loop
+      ? ((uSec % dur) + dur) % dur
+      : clamp(uSec, 0, Math.max(0.0005, dur - 0.0005));
+    const frame = clamp(clip.from + localSec * clip.fps, clip.from, clip.to);
+
+    const hipsNode = boneNodes.get('mixamorig:Hips');
+    if (hipsNode && clip.hipsPosAnim) {
+      const rawH = clip.hipsPosAnim.evaluate(frame);
+      hipsNode.position.set(0, 0, rawH.z);
+    }
+
+    for (const [boneName, tn] of boneNodes.entries()) {
+      const anim = clip.rotMap.get(boneName);
+      const rRest = restRot.get(boneName);
+      tn.rotationQuaternion.copyFrom(anim ? anim.evaluate(frame) : rRest);
+    }
+
+    finalizeSkeletonXrayAndFootPlants(playerModel, state, overlaysConfig);
+
+    const rmTag = state.useRootMotion !== false ? 'RootMotion 真实位移' : 'In-Place 原地检阅';
+    playerModel.activeMocapDebug = `[${clip.id}] ${clip.source} · ${rmTag}`;
+    playerModel.telemetry.activeClip = `${clip.id} (${clip.source})`;
+    playerModel.telemetry.activeFoot = `${playerModel.telemetry.plantedFeet} · [${clip.meta.firstStanceFoot}→${clip.meta.lastStanceFoot}]`;
+    return;
+  }
+
+  // ============================================================================
+  // BRANCH B: C2-Inertialized Multi-Clip Assembled Optical Sequence
+  // ============================================================================
+  if (state.compiledSequence) {
+    const seqRes = applyCompiledSequencePose(playerModel, state.compiledSequence, state.tSec);
+    root.position.set(seqRes.x, 0, seqRes.z);
+    root.rotation.y = seqRes.rootYaw;
+    posePivot.position.y = 0;
+    posePivot.rotation.set(0, 0, 0);
+
+    state.x = seqRes.x;
+    state.z = seqRes.z;
+    state.yaw = seqRes.facingYaw;
+
+    if (scanCone) {
+      const hasScan = Math.abs(state.scanYaw || 0) > 0.08;
+      scanCone.setEnabled(Boolean(overlaysConfig.showScan && overlaysConfig.cameraMode !== 'ankle'));
+      scanCone.rotation.y = (seqRes.facingYaw - seqRes.rootYaw) + (state.scanYaw || 0);
+      scanCone.material.alpha = hasScan ? 0.22 : 0.10;
+    }
+    if (coverShadow) {
+      const showShad = Boolean(overlaysConfig.showCoverShadow && state.showShadow !== false && overlaysConfig.cameraMode !== 'ankle');
+      coverShadow.setEnabled(showShad);
+      if (showShad && state.shadowYaw !== undefined) {
+        coverShadow.rotation.y = state.shadowYaw - seqRes.rootYaw;
+      }
+    }
+
+    // Gentle bounded head pre-scan rotation
+    if (Math.abs(state.scanYaw || 0) > 0.01) {
+      const clampedScan = clamp(state.scanYaw, -0.52, 0.52);
+      const neckNode = boneNodes.get('mixamorig:Neck');
+      const headNode = boneNodes.get('mixamorig:Head');
+      if (neckNode) {
+        BABYLON.Quaternion.RotationAxisToRef(BABYLON.Axis.Y, clampedScan * 0.42, _qAdditive);
+        neckNode.rotationQuaternion.multiplyInPlace(_qAdditive);
+      }
+      if (headNode) {
+        BABYLON.Quaternion.RotationAxisToRef(BABYLON.Axis.Y, clampedScan * 0.58, _qAdditive);
+        headNode.rotationQuaternion.multiplyInPlace(_qAdditive);
+      }
+    }
+
+    // Subtle micro-weighted ball-touch IK at contact peak so optical mocap cadence stays 100% smooth
+    const segClipId = seqRes.seg ? seqRes.seg.clipId : '';
+    state._compiledMode = true;
+    applyAnatomicalBallTouchIK(playerModel, state, segClipId, null);
+
+    finalizeSkeletonXrayAndFootPlants(playerModel, state, overlaysConfig);
+
+    const totalSegs = state.compiledSequence.segments.length;
+    const inertBadge = seqRes.inInertial ? ` · C2惯性过渡 ${seqRes.inertialPct}%` : '';
+    playerModel.activeMocapDebug =
+      `组装链 [${seqRes.segIdx + 1}/${totalSegs}] ${segClipId}${inertBadge}`;
+    playerModel.telemetry.activeClip = `[${seqRes.segIdx + 1}/${totalSegs}] ${segClipId}`;
+    playerModel.telemetry.activeFoot = `${playerModel.telemetry.plantedFeet}${
+      seqRes.seg && seqRes.seg.note ? ` · ${seqRes.seg.note}` : ''
+    }`;
+    return;
+  }
+
+  // ============================================================================
+  // BRANCH C: Legacy Mixamo BlendSpace (Background Off-Ball Actors)
+  // ============================================================================
+  root.position.set(state.x, 0, state.z);
+  root.rotation.y = state.yaw || 0;
+  posePivot.position.y = 0;
+  posePivot.rotation.z = clamp(state.leanRoll || 0, -0.15, 0.15);
+  posePivot.rotation.x = clamp((state.leanPitch || 0) * 0.55, -0.08, 0.10);
 
   if (scanCone) {
     const hasScan = Math.abs(state.scanYaw || 0) > 0.08;
@@ -576,7 +896,6 @@ export function updateBabylonPlayerPose(playerModel, state, overlaysConfig) {
     scanCone.rotation.y = state.scanYaw || 0;
     scanCone.material.alpha = hasScan ? 0.22 : 0.10;
   }
-
   if (coverShadow) {
     const showShad = Boolean(overlaysConfig.showCoverShadow && state.showShadow !== false && overlaysConfig.cameraMode !== 'ankle');
     coverShadow.setEnabled(showShad);
@@ -584,8 +903,6 @@ export function updateBabylonPlayerPose(playerModel, state, overlaysConfig) {
       coverShadow.rotation.y = state.shadowYaw - (state.yaw || 0);
     }
   }
-
-  if (!playerModel.rigReady) return;
 
   let primaryId = state.primaryClip;
   let clipTime = state.clipTime ?? state.tSec ?? 0;
@@ -629,9 +946,6 @@ export function updateBabylonPlayerPose(playerModel, state, overlaysConfig) {
   const frameA = sampleClipFrame(clipA, clipTime);
   const frameB = clipB ? sampleClipFrame(clipB, secondaryTime) : 0;
 
-  const { boneNodes, restRot } = playerModel;
-
-  // 1. Evaluate Hips pelvis height with horizontal root-drift stripped on locomotion/upright clips!
   const hipsNode = boneNodes.get('mixamorig:Hips');
   if (hipsNode && clipA.hipsPosAnim) {
     evaluateSanitizedHipsPos(clipA, frameA, _vPosA);
@@ -643,7 +957,6 @@ export function updateBabylonPlayerPose(playerModel, state, overlaysConfig) {
     }
   }
 
-  // 2. Evaluate all 65 bone rotations cleanly via shortest-hemisphere Quaternion SLERP
   for (const [boneName, tn] of boneNodes.entries()) {
     const animA = clipA.rotMap.get(boneName);
     const rRest = restRot.get(boneName);
@@ -662,16 +975,14 @@ export function updateBabylonPlayerPose(playerModel, state, overlaysConfig) {
     tn.rotationQuaternion.copyFrom(_qOut);
   }
 
-  // 3. Damp ground sky-kicks / pelvis whip, apply real Video-to-3D Motion Capture when available,
-  //    then solve Anatomical Ball-Touch IK (scaled down gently when VideoMocap already drives the limbs)
   dampGroundSkyKickAndPelvisWhip(playerModel, state, primaryId, secondaryId, blendW);
   const vcW = state.videoCaptureFrame
     ? applyVideoCaptureFrame(playerModel, state.videoCaptureFrame, state, state.videoCaptureWeight ?? 0.90)
     : 0;
   state._vcAppliedW = vcW;
+  state._compiledMode = false;
   applyAnatomicalBallTouchIK(playerModel, state, primaryId, secondaryId);
 
-  // 4. Natural bounded head pre-scan rotation (`scanYaw` divided gently across Neck & Head, max ±28°)
   if (Math.abs(state.scanYaw || 0) > 0.01) {
     const clampedScan = clamp(state.scanYaw, -0.52, 0.52);
     const neckNode = boneNodes.get('mixamorig:Neck');
@@ -686,108 +997,26 @@ export function updateBabylonPlayerPose(playerModel, state, overlaysConfig) {
     }
   }
 
-  // 5. True X-Ray 65-Bone Skeleton LineSystem (reflects IK-resolved thigh, calf & ankle angles)
-  if (overlaysConfig.showSkeleton && playerModel.skeleton) {
-    if (!playerModel.bonePairs) {
-      const pairs = [];
-      for (const b of playerModel.skeleton.bones) {
-        const p = b.getParent();
-        const tnC = b.getTransformNode();
-        const tnP = p ? p.getTransformNode() : null;
-        if (tnC && tnP) {
-          pairs.push([tnP, tnC]);
-        }
-      }
-      playerModel.bonePairs = pairs;
-    }
-    playerModel.root.computeWorldMatrix(true);
-    for (const tn of boneNodes.values()) {
-      tn.computeWorldMatrix(true);
-    }
-    const lines = playerModel.bonePairs.map(([tnP, tnC]) => [
-      tnP.getAbsolutePosition().clone(),
-      tnC.getAbsolutePosition().clone()
-    ]);
-    if (!playerModel.skeletonViewer) {
-      const ls = BABYLON.MeshBuilder.CreateLineSystem(
-        `XRayBones_${playerModel.actorDef.id}`,
-        { lines, updatable: true },
-        playerModel.scene
-      );
-      ls.color = isHeroRole(playerModel.actorDef.role)
-        ? new BABYLON.Color3(0.99, 0.84, 0.12)
-        : new BABYLON.Color3(0.22, 0.78, 0.98);
-      ls.renderingGroupId = 2;
-      ls.isPickable = false;
-      ls.alwaysSelectAsActiveMesh = true;
-      playerModel.skeletonViewer = ls;
-    } else {
-      BABYLON.MeshBuilder.CreateLineSystem(null, { lines, instance: playerModel.skeletonViewer });
-      playerModel.skeletonViewer.setEnabled(true);
-    }
-  } else if (playerModel.skeletonViewer) {
-    playerModel.skeletonViewer.setEnabled(false);
-  }
+  finalizeSkeletonXrayAndFootPlants(playerModel, state, overlaysConfig);
 
-  // 6. Compute real-time biomechanical telemetry directly from IK-resolved Mixamo skeleton
   const pctA = Math.round((1 - blendW) * 100);
   const pctB = Math.round(blendW * 100);
-  const vcBadge = vcW > 0.05 ? ` + VideoMocap(${Math.round(vcW * 100)}%)` : '';
-  const ikBadge =
-    state.ballTouch && state.ballTouch.weight > 0.15
-      ? ` + TouchIK(${state.ballTouch.foot}:${Math.round(state.ballTouch.weight * (1 - 0.68 * vcW) * 100)}%)`
-      : '';
-  playerModel.activeMocapDebug =
-    (clipB ? `${primaryId} (${pctA}%) → ${secondaryId} (${pctB}%)` : `${primaryId} (100%)`) + vcBadge + ikBadge;
-
-  const rLeg = boneNodes.get('mixamorig:RightLeg');
-  const lLeg = boneNodes.get('mixamorig:LeftLeg');
-  const activeFootNode =
-    state.ballTouch && state.ballTouch.foot === 'L'
-      ? boneNodes.get('mixamorig:LeftFoot')
-      : boneNodes.get('mixamorig:RightFoot');
-
-  const kneeAngleRad = rLeg
-    ? 2 * Math.acos(clamp(Math.abs(rLeg.rotationQuaternion.w), 0, 1))
-    : 0.3;
-  const lKneeRad = lLeg
-    ? 2 * Math.acos(clamp(Math.abs(lLeg.rotationQuaternion.w), 0, 1))
-    : 0.3;
-  const ankleEu = activeFootNode ? activeFootNode.rotationQuaternion.toEulerAngles() : BABYLON.Vector3.Zero();
-
-  let footLabel = vcW > 0.25 ? `原片3D视频动捕 (${Math.round(vcW * 100)}%)` : '双脚动态盘带支撑';
-  if (state.ballTouch && state.ballTouch.weight > 0.15) {
-    const fSide = state.ballTouch.foot === 'L' ? '左脚' : '右脚';
-    const act = state.ballTouch.action;
-    const fPart =
-      state.ballTouch.type === 'sole'
-        ? '脚底拉球'
-        : state.ballTouch.type === 'outside'
-        ? '外脚背拨顺'
-        : state.ballTouch.type === 'instep'
-        ? act === 'receive'
-          ? '正脚背卸球'
-          : '正脚背抽射'
-        : act === 'receive'
-        ? '脚内侧缓冲卸球'
-        : act === 'strike'
-        ? '脚内侧推传/兜射'
-        : '脚内侧扣顺';
-    footLabel =
-      vcW > 0.25
-        ? `${fSide}${fPart} · 视频动捕 ${Math.round(vcW * 100)}%`
-        : `${fSide}${fPart} · IK ${Math.round(state.ballTouch.weight * 100)}%`;
-  }
-
-  playerModel.telemetry.activeClip = (clipB ? `${primaryId}+${secondaryId}` : primaryId) + (vcW > 0.25 ? '+VideoMocap' : '');
-  playerModel.telemetry.activeFoot = footLabel;
-  playerModel.telemetry.kneeFlexDeg = Math.round(((Math.max(kneeAngleRad, lKneeRad) * 180) / Math.PI));
-  playerModel.telemetry.anklePitchDeg = Math.round(((ankleEu.x * 180) / Math.PI) % 90);
-  playerModel.telemetry.ankleEversionDeg = Math.round(((ankleEu.z * 180) / Math.PI) % 45);
+  playerModel.activeMocapDebug = clipB ? `${primaryId} (${pctA}%) → ${secondaryId} (${pctB}%)` : `${primaryId} (100%)`;
+  playerModel.telemetry.activeClip = clipB ? `${primaryId}+${secondaryId}` : primaryId;
+  playerModel.telemetry.activeFoot = playerModel.telemetry.plantedFeet;
 }
 
 const GROUND_STRIKE_CLIPS = new Set(['soccer_shot_drive', 'soccer_pass_inside', 'soccer_through_ball']);
-const STUNT_SKIP_IK_CLIPS = new Set(['soccer_slide_tackle', 'soccer_turf_hand_shield', 'gk_dive_left', 'gk_dive_right']);
+const STUNT_SKIP_IK_CLIPS = new Set([
+  'soccer_slide_tackle',
+  'soccer_turf_hand_shield',
+  'def_slide_tackle_r',
+  'def_slide_tackle_l',
+  'shield_turf_hand_r',
+  'shield_turf_hand_l',
+  'gk_dive_left',
+  'gk_dive_right'
+]);
 
 function refreshLegChainWorldMatrices(playerModel, upLeg, leg, foot, toe) {
   playerModel.root.computeWorldMatrix(true);
@@ -1062,7 +1291,9 @@ function applyAnatomicalBallTouchIK(playerModel, state, primaryId, secondaryId) 
   const poleOutFactor = 0.34 + Math.max(0, turnoutRad) * 0.65;
   const poleDirWorld = Fwd.scale(0.86).add(Out.scale(poleOutFactor)).add(Up.scale(0.12)).normalize();
 
-  const effWeight = touch.weight * (1 - 0.85 * clamp(state._vcAppliedW || 0, 0, 1));
+  const effWeight = state._compiledMode
+    ? Math.min(0.26, touch.weight * 0.30)
+    : touch.weight * (1 - 0.85 * clamp(state._vcAppliedW || 0, 0, 1));
   solveTwoBoneLegIK(playerModel, isLeft, AGoal, poleDirWorld, turnoutRad, toeDirGoal, effWeight);
 }
 

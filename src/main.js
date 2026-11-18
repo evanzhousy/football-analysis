@@ -5,12 +5,18 @@ import {
   attachBabylonAthleteRig,
   createBabylonPlayer,
   updateBabylonPlayerPose,
+  setPlayerWhiteModelMode,
   createBabylonTrajectoryRibbon,
   isHeroRole
 } from './babylonPlayer.js';
 import { resolveKitPreset } from './babylonKit.js';
-import { MOCAP_CATALOG, getMocapMeta, getMocapDuration } from './mixamoSoccerLibrary.js';
-import { SCENARIOS, evaluateScenarioAtTime } from './scenarios.js';
+import {
+  ATOMIC_CATEGORIES,
+  SOCCER_ATOMIC_CATALOG,
+  SOCCER_ATOMIC_BY_ID
+} from './soccerAtomicCatalog.js';
+import { getAtomicClip } from './atomicMotionAssembler.js';
+import { SCENARIOS, SCENARIO_ASSEMBLED_SEQUENCES, evaluateScenarioAtTime } from './scenarios.js';
 import { SCENARIO_VIDEOS, MASTER_ZHIBO8_REEL } from './videos.js';
 
 function clamp(v, lo, hi) {
@@ -92,8 +98,8 @@ const resizeObserver = new ResizeObserver(() => {
 });
 resizeObserver.observe(container);
 
-// 2. Build Stadium Pitch, Floodlights, PCF Shadows & FIFA Size-5 Match Ball
-const { shadowGen } = createBabylonPitchEnvironment(scene);
+// 2. Build Stadium / White-Model Calibration Grid Environment & FIFA Size-5 Match Ball
+const { shadowGen, setWhiteBoxMode } = createBabylonPitchEnvironment(scene);
 const matchBall = createBabylonMatchBall(scene, shadowGen);
 
 const scenarioGroup = new BABYLON.TransformNode('ScenarioGroup', scene);
@@ -106,8 +112,9 @@ let activeActors = [];
 let activeRibbons = [];
 let snapCameraNextFrame = true;
 let rigLoaded = false;
+let cachedRigContext = null;
 
-// Playback, Master Video Clock & Mixamo Soccer Pack Library State
+// Playback, Master Video Clock & 86-Clip White-Model Football Atomic Library State
 let isPlaying = true;
 let playbackSpeed = 0.5;
 let currentSec = 0.0;
@@ -116,10 +123,13 @@ let splitLayout = true;
 let activeVideoSource = 'zhibo8';
 let activeSubClipIndex = 0;
 let syncVideoTo3D = true;
-let activeMocapMode = 'tactical'; // 'tactical' | 'lib:<clipId>'
+let activeMocapMode = 'tactical'; // 'tactical' | 'atomic:<clipId>'
+let showcaseRootMotion = true;
 let showcasePedriActor = null;
+let lastHighlightedSegIdx = -1;
 
 const overlaysConfig = {
+  whiteBoxMode: true,
   showSkeleton: false,
   showScan: true,
   showCoverShadow: true,
@@ -127,6 +137,9 @@ const overlaysConfig = {
   showLabels: true,
   cameraMode: 'broadcast'
 };
+
+// Boot into White-Model Mannequin + 1.0m Calibration Grid Studio Mode by default
+setWhiteBoxMode(true);
 
 // UI References
 const scenarioListEl = document.getElementById('scenario-list');
@@ -137,6 +150,7 @@ const phaseBadgeEl = document.getElementById('live-phase-badge');
 const matchSourceEl = document.getElementById('live-match-source');
 const phaseDescEl = document.getElementById('live-phase-desc');
 const hudMocapBadgeEl = document.getElementById('hud-mocap-badge');
+const assemblyChainStripEl = document.getElementById('assembly-chain-strip');
 const phaseButtonsContainer = document.getElementById('phase-pills-row');
 const playBtnEl = document.getElementById('btn-play-toggle');
 const btnStepPrevEl = document.getElementById('btn-step-prev');
@@ -145,6 +159,9 @@ const sliderEl = document.getElementById('timeline-slider');
 const timeReadoutEl = document.getElementById('time-readout');
 
 const mocapModeSelectEl = document.getElementById('mocap-mode-select');
+const btnWhiteboxTopEl = document.getElementById('btn-whitebox-top');
+const btnToggleWhiteboxEl = document.getElementById('toggle-whitebox');
+const btnRootMotionTopEl = document.getElementById('btn-rootmotion-top');
 const btnXrayTopEl = document.getElementById('btn-xray-top');
 const btnToggleSkeletonEl = document.getElementById('toggle-skeleton');
 
@@ -189,28 +206,38 @@ const valDeception = document.getElementById('val-deception');
 const barSeparation = document.getElementById('bar-separation');
 const valSeparation = document.getElementById('val-separation');
 
-// Populate 32-Clip Official Adobe Mixamo《Soccer Pack》Library into #mocap-mode-select
+function getHeroRigContext() {
+  if (cachedRigContext) return cachedRigContext;
+  if (!rigLoaded) return null;
+  const readyModel =
+    activeActors.find((a) => a.model && a.model.rigReady)?.model ||
+    (showcasePedriActor && showcasePedriActor.rigReady ? showcasePedriActor : null);
+  if (!readyModel || !readyModel.boneNodes || !readyModel.restRot) return null;
+  cachedRigContext = {
+    boneNames: Array.from(readyModel.boneNodes.keys()),
+    restRot: readyModel.restRot
+  };
+  return cachedRigContext;
+}
+
+// Populate 86-Clip Canonical White-Model Football Atomic Library into #mocap-mode-select
 function buildMocapLibrarySelector() {
   mocapModeSelectEl.innerHTML = '';
 
   const optTactical = document.createElement('option');
   optTactical.value = 'tactical';
-  optTactical.textContent = '⚽ 实战视频 1:1 帧同步模式 (18大中场/前锋/后卫切片)';
+  optTactical.textContent = '⚽ 组装复杂动作 × 实况视频 1:1 对照 (18大场景)';
   mocapModeSelectEl.appendChild(optTactical);
 
-  const byCat = new Map();
-  for (const item of MOCAP_CATALOG) {
-    if (!byCat.has(item.category)) byCat.set(item.category, []);
-    byCat.get(item.category).push(item);
-  }
-
-  for (const [catName, list] of byCat.entries()) {
+  for (const [catKey, catLabel] of Object.entries(ATOMIC_CATEGORIES)) {
+    const list = SOCCER_ATOMIC_CATALOG.filter((item) => item.category === catKey);
+    if (list.length === 0) continue;
     const grp = document.createElement('optgroup');
-    grp.label = `Mixamo《Soccer Pack》官方库 · ${catName} (${list.length}组)`;
+    grp.label = `白模足球原子动作库 · ${catLabel} (${list.length}组)`;
     for (const item of list) {
       const opt = document.createElement('option');
-      opt.value = `lib:${item.id}`;
-      opt.textContent = `[${item.id}] ${item.label}`;
+      opt.value = `atomic:${item.id}`;
+      opt.textContent = `[${item.id}] ${item.label} · ${item.source}`;
       grp.appendChild(opt);
     }
     mocapModeSelectEl.appendChild(grp);
@@ -218,21 +245,56 @@ function buildMocapLibrarySelector() {
 }
 buildMocapLibrarySelector();
 
-// Preload Intact Watertight 65-Bone Mixamo Athlete + All 32 Official《Soccer Pack》Animations
-const rigReadyPromise = preloadBabylonAthleteRig(scene, (done, total, entry) => {
+// Preload Intact Watertight 65-Bone Athlete + All 86 Optical White-Model Atomic Clips
+const rigReadyPromise = preloadBabylonAthleteRig(scene, (done, total) => {
   if (hudMocapBadgeEl) {
-    hudMocapBadgeEl.textContent = `Mixamo《Soccer Pack》加载中: ${done}/${total} (${entry.id})...`;
+    hudMocapBadgeEl.textContent = `白模足球原子动作库加载中: ${done}/${total} 组光学动捕...`;
   }
 }).then(() => {
   rigLoaded = true;
-  activeActors.forEach((a) => attachBabylonAthleteRig(a.model));
+  activeActors.forEach((a) => {
+    attachBabylonAthleteRig(a.model);
+    setPlayerWhiteModelMode(a.model, overlaysConfig.whiteBoxMode);
+  });
   if (showcasePedriActor) {
     attachBabylonAthleteRig(showcasePedriActor);
+    setPlayerWhiteModelMode(showcasePedriActor, overlaysConfig.whiteBoxMode);
   }
+  getHeroRigContext();
   if (activeMocapMode === 'tactical') {
     matchSourceEl.textContent = SCENARIOS[activeScenarioIndex].matchRef;
   }
 });
+
+// White-Model Studio Mode Controller (1.0m Grid + Alabaster/Slate Clay + Cyan/Orange Foot-Plant Rings)
+function setStudioWhiteBoxMode(enabled) {
+  overlaysConfig.whiteBoxMode = Boolean(enabled);
+  setWhiteBoxMode(overlaysConfig.whiteBoxMode);
+  if (btnWhiteboxTopEl) btnWhiteboxTopEl.classList.toggle('active', overlaysConfig.whiteBoxMode);
+  if (btnToggleWhiteboxEl) btnToggleWhiteboxEl.classList.toggle('active', overlaysConfig.whiteBoxMode);
+
+  activeActors.forEach((a) => setPlayerWhiteModelMode(a.model, overlaysConfig.whiteBoxMode));
+  if (showcasePedriActor) {
+    setPlayerWhiteModelMode(showcasePedriActor, overlaysConfig.whiteBoxMode);
+  }
+  updateHeroHeaderAndLegend(SCENARIOS[activeScenarioIndex]);
+}
+
+function toggleStudioWhiteBoxMode() {
+  setStudioWhiteBoxMode(!overlaysConfig.whiteBoxMode);
+}
+if (btnWhiteboxTopEl) btnWhiteboxTopEl.addEventListener('click', toggleStudioWhiteBoxMode);
+if (btnToggleWhiteboxEl) btnToggleWhiteboxEl.addEventListener('click', toggleStudioWhiteBoxMode);
+
+if (btnRootMotionTopEl) {
+  btnRootMotionTopEl.addEventListener('click', () => {
+    showcaseRootMotion = !showcaseRootMotion;
+    btnRootMotionTopEl.classList.toggle('active', showcaseRootMotion);
+    btnRootMotionTopEl.textContent = showcaseRootMotion ? 'Root位移' : '原地检阅';
+    currentSec = 0;
+    snapCameraNextFrame = true;
+  });
+}
 
 // 3. Real Video Deck Controller (Master Clock Source when syncVideoTo3D === true)
 function loadZhibo8ClipElement(srcUrl, titleText, dlFilename, pageUrl, initialTimeSec = 0) {
@@ -343,7 +405,7 @@ function updateRealVideoDeck() {
   if (activeVideoSource === 'reel') {
     zhibo8SubclipsBarEl.style.display = 'flex';
     zhibo8SubclipsBtnsEl.innerHTML =
-      '<span style="font-size:11px;color:var(--accent-gold);font-weight:600;">55.5s 总集锦连播中 · Babylon.js 3D 场景随视频自动切换 01→08</span>';
+      '<span style="font-size:11px;color:var(--accent-gold);font-weight:600;">55.5s 总集锦连播中 · 白模组装 3D 场景随视频自动切换 01→08</span>';
     const seg = (MASTER_ZHIBO8_REEL.segments || []).find((s) => s.scenarioIndex === activeScenarioIndex);
     loadZhibo8ClipElement(
       MASTER_ZHIBO8_REEL.src,
@@ -364,7 +426,7 @@ function updateRealVideoDeck() {
     videoIframeEl.style.display = 'none';
     videoIframeEl.src = 'about:blank';
     localVideoBoxEl.style.display = 'flex';
-    videoNowTitleEl.textContent = '本地实况视频 × Babylon.js 65骨标准球员同步慢放对比';
+    videoNowTitleEl.textContent = '本地实况视频 × Babylon.js 65 骨白模组装球员同步慢放对比';
     localVideoEl.playbackRate = playbackSpeed;
   } else {
     localVideoBoxEl.style.display = 'none';
@@ -429,7 +491,7 @@ localVideoInputEl.addEventListener('change', (e) => {
 function applySplitLayout(nextSplit) {
   splitLayout = Boolean(nextSplit);
   btnLayoutSplit.classList.toggle('active', splitLayout);
-  btnLayoutSplit.textContent = splitLayout ? '实况视频+3D同屏' : '开启实况视频同屏';
+  btnLayoutSplit.textContent = splitLayout ? '视频+3D同屏' : '开启视频同屏';
   viewportStageEl.classList.toggle('split-mode', splitLayout);
   viewportStageEl.classList.toggle('full3d-mode', !splitLayout);
   engine.resize();
@@ -439,7 +501,87 @@ btnLayoutSplit.addEventListener('click', () => {
   applySplitLayout(!splitLayout);
 });
 
-// 4. Switch Between 18-Scenario Video 1:1 Mode vs 32-Clip Mixamo《Soccer Pack》Showcase
+// 4. Interactive Action-Chain Assembly Strip (Bottom Dock)
+function renderAssemblyChainStrip(sc) {
+  if (!assemblyChainStripEl) return;
+  assemblyChainStripEl.innerHTML = '';
+  lastHighlightedSegIdx = -1;
+
+  if (activeMocapMode !== 'tactical') {
+    const clipId = activeMocapMode.replace(/^(atomic:|lib:)/, '');
+    const meta = SOCCER_ATOMIC_BY_ID.get(clipId);
+    const lbl = document.createElement('span');
+    lbl.className = 'assembly-chain-label';
+    lbl.textContent = '🔬 单体白模原子动作检阅';
+    assemblyChainStripEl.appendChild(lbl);
+
+    const backBtn = document.createElement('button');
+    backBtn.type = 'button';
+    backBtn.className = 'assembly-node-btn active';
+    backBtn.innerHTML = '<span>⬅ 返回 18 场景复杂动作组装模式</span>';
+    backBtn.addEventListener('click', () => setMocapMode('tactical'));
+    assemblyChainStripEl.appendChild(backBtn);
+
+    if (meta) {
+      const info = document.createElement('span');
+      info.className = 'assembly-arrow';
+      info.style.marginLeft = '6px';
+      info.textContent =
+        `片源: ${meta.source} · 时长: ${meta.duration}s (${meta.frames}帧) · ` +
+        `净位移: [${meta.deltaPos[0]}m, ${meta.deltaPos[1]}m] · 净转身: ${meta.deltaYawDeg}° · ` +
+        `支撑足切换: ${meta.firstStanceFoot}→${meta.lastStanceFoot}`;
+      assemblyChainStripEl.appendChild(info);
+    }
+    return;
+  }
+
+  const heroDef = sc.actors.find((a) => isHeroRole(a.role)) || sc.actors[0];
+  const specMap = SCENARIO_ASSEMBLED_SEQUENCES[sc.id];
+  const heroSeqSpec = specMap && heroDef ? specMap[heroDef.id] : null;
+  if (!heroSeqSpec || !heroSeqSpec.segments) return;
+
+  const badge = document.createElement('span');
+  badge.className = 'assembly-chain-label';
+  badge.textContent = `🧩 原子组装链 (${heroSeqSpec.segments.length}段 C2惯性拼接)`;
+  assemblyChainStripEl.appendChild(badge);
+
+  let accStart = 0;
+  heroSeqSpec.segments.forEach((seg, idx) => {
+    if (idx > 0) {
+      const arr = document.createElement('span');
+      arr.className = 'assembly-arrow';
+      arr.textContent = '➔';
+      assemblyChainStripEl.appendChild(arr);
+    }
+    const segStart = accStart;
+    const segDur = seg.durationSec || 0.8;
+    accStart += segDur;
+
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'assembly-node-btn';
+    btn.dataset.segIdx = String(idx);
+    btn.title = '单击跳至该组装段起点 · 双击单独检阅该白模原子动作';
+    btn.innerHTML = `<span>${idx + 1}. ${seg.note || seg.clipId}</span><code>${seg.clipId}</code>`;
+    btn.addEventListener('click', () => {
+      seekToSecond(segStart + 0.02, true);
+    });
+    btn.addEventListener('dblclick', () => {
+      setMocapMode(`atomic:${seg.clipId}`);
+    });
+    assemblyChainStripEl.appendChild(btn);
+  });
+}
+
+function highlightActiveAssemblyNode(segIdx) {
+  if (!assemblyChainStripEl || segIdx === lastHighlightedSegIdx) return;
+  lastHighlightedSegIdx = segIdx;
+  assemblyChainStripEl.querySelectorAll('.assembly-node-btn').forEach((btn) => {
+    btn.classList.toggle('active', Number(btn.dataset.segIdx) === segIdx);
+  });
+}
+
+// 5. Switch Between 18-Scenario Assembled Sequences vs 86-Clip White-Model Atomic Library Showcase
 function clearShowcaseObjects() {
   if (showcasePedriActor) {
     showcasePedriActor.dispose();
@@ -447,13 +589,19 @@ function clearShowcaseObjects() {
   }
 }
 
-function setMocapMode(mode) {
-  activeMocapMode = mode;
-  mocapModeSelectEl.value = mode;
-  currentSec = 0.0;
-  snapCameraNextFrame = true;
+function resolveAtomicClipIdFromMode(mode) {
+  const raw = mode.replace(/^(atomic:|lib:)/, '');
+  if (SOCCER_ATOMIC_BY_ID.has(raw)) return raw;
+  return 'stance_ready';
+}
 
+function setMocapMode(mode) {
   if (mode === 'tactical') {
+    activeMocapMode = 'tactical';
+    mocapModeSelectEl.value = 'tactical';
+    if (btnRootMotionTopEl) btnRootMotionTopEl.style.display = 'none';
+    currentSec = 0.0;
+    snapCameraNextFrame = true;
     clearShowcaseObjects();
     mocapShowcaseGroup.setEnabled(false);
     scenarioGroup.setEnabled(true);
@@ -461,8 +609,18 @@ function setMocapMode(mode) {
     return;
   }
 
-  const clipId = mode.replace(/^lib:/, '');
-  const meta = getMocapMeta(clipId);
+  const clipId = resolveAtomicClipIdFromMode(mode);
+  activeMocapMode = `atomic:${clipId}`;
+  mocapModeSelectEl.value = activeMocapMode;
+  if (btnRootMotionTopEl) {
+    btnRootMotionTopEl.style.display = 'inline-flex';
+    btnRootMotionTopEl.classList.toggle('active', showcaseRootMotion);
+    btnRootMotionTopEl.textContent = showcaseRootMotion ? 'Root位移' : '原地检阅';
+  }
+  currentSec = 0.0;
+  snapCameraNextFrame = true;
+
+  const meta = SOCCER_ATOMIC_BY_ID.get(clipId) || SOCCER_ATOMIC_CATALOG[0];
 
   scenarioGroup.setEnabled(false);
   mocapShowcaseGroup.setEnabled(true);
@@ -480,19 +638,22 @@ function setMocapMode(mode) {
     shadowGen,
     mocapShowcaseGroup
   );
+  setPlayerWhiteModelMode(showcasePedriActor, overlaysConfig.whiteBoxMode);
+  renderAssemblyChainStrip(curSc);
 
-  matchSourceEl.textContent = `Adobe Mixamo《Soccer Pack》官方库 · ${meta.category} (${meta.file})`;
-  inspEyebrowEl.textContent = `MIXAMO SOCCER PACK · ${meta.category}`;
+  matchSourceEl.textContent = `白模足球原子动作库 (86组) · ${meta.categoryLabel} · ${meta.source}`;
+  inspEyebrowEl.textContent = `ATOMIC CLIP · ${meta.category.toUpperCase()} · ${meta.source.toUpperCase()}`;
   inspTitleEl.textContent = meta.label;
-  inspMoveEl.textContent = `动作资产 ID: ${meta.id} · 当前检阅球星: ${curSc.starName}`;
-  inspPressureEl.textContent = '提示：可切换「主角肩后 / 足踝特写 / 自由3D」或按 [X] 开启 65 骨骼透视检阅模型与动作细节';
+  inspMoveEl.textContent = `资产 ID: ${meta.id} (${meta.file}) · 时长 ${meta.duration}s · ΔYaw ${meta.deltaYawDeg}°`;
+  inspPressureEl.textContent =
+    '提示：地面 1.0m 标准网格 + 青(左)/橙(右)足底触地环可直观验证零滑步与真实 Root Motion；按 [W] 切换白模/球衣。';
 }
 
 mocapModeSelectEl.addEventListener('change', (e) => {
   setMocapMode(e.target.value);
 });
 
-// 5. Render Sidebar Scenario List & Position Filter Tabs (ALL / MF / FW / DF)
+// 6. Render Sidebar Scenario List & Position Filter Tabs (ALL / MF / FW / DF)
 function buildScenarioSidebar() {
   scenarioListEl.innerHTML = '';
   let visibleCount = 0;
@@ -526,6 +687,7 @@ function buildScenarioSidebar() {
       if (activeMocapMode !== 'tactical') {
         activeMocapMode = 'tactical';
         mocapModeSelectEl.value = 'tactical';
+        if (btnRootMotionTopEl) btnRootMotionTopEl.style.display = 'none';
         clearShowcaseObjects();
         mocapShowcaseGroup.setEnabled(false);
         scenarioGroup.setEnabled(true);
@@ -539,7 +701,6 @@ function buildScenarioSidebar() {
           }
           return;
         }
-        // Scenarios 09-18 have individual Zhibo8 clips -> switch cleanly from Pedri 8-clip reel to 'zhibo8'
         activeVideoSource = 'zhibo8';
         document.querySelectorAll('.vsrc-btn').forEach((b) => {
           b.classList.toggle('active', b.dataset.vsrc === 'zhibo8');
@@ -588,7 +749,7 @@ document.querySelectorAll('.pos-tab-btn').forEach((btn) => {
   });
 });
 
-// 6. Load Selected Scenario into Babylon.js Scene + Sync Video Deck
+// 7. Load Selected Scenario into Babylon.js Scene + Sync Video Deck & Assembly Chain
 function clearScenarioObjects() {
   for (const a of activeActors) {
     a.model.dispose();
@@ -603,6 +764,7 @@ function clearScenarioObjects() {
 }
 
 function updateHeroHeaderAndLegend(sc) {
+  if (!sc) return;
   const heroDef = sc.actors.find((a) => isHeroRole(a.role)) || sc.actors[0];
   if (!heroDef) return;
   const preset = resolveKitPreset(heroDef.kit);
@@ -613,7 +775,8 @@ function updateHeroHeaderAndLegend(sc) {
     brandJerseyCrestEl.style.color = preset.numColor || '#facc15';
   }
   if (legendHeroLabelEl) {
-    legendHeroLabelEl.textContent = `${sc.starName || heroDef.label} (${sc.positionLabel || '主角'} · 一体成型零破洞)`;
+    const modeTag = overlaysConfig.whiteBoxMode ? '白模雕塑素体' : '实况球衣草皮';
+    legendHeroLabelEl.textContent = `${sc.starName || heroDef.label} (${sc.positionLabel || '主角'} · ${modeTag})`;
   }
 }
 
@@ -635,6 +798,7 @@ function loadScenario(index, opts = {}) {
   clearScenarioObjects();
   activeActors = sc.actors.map((actorDef) => {
     const model = createBabylonPlayer(scene, actorDef, shadowGen, scenarioGroup);
+    setPlayerWhiteModelMode(model, overlaysConfig.whiteBoxMode);
     return { def: actorDef, model };
   });
 
@@ -656,6 +820,8 @@ function loadScenario(index, opts = {}) {
 
   keypointsListEl.innerHTML = sc.keypoints.map((kp) => `<li>${kp}</li>`).join('');
   matchSourceEl.textContent = sc.matchRef;
+
+  renderAssemblyChainStrip(sc);
 
   phaseButtonsContainer.innerHTML = '';
   sc.phases.forEach((ph, pIdx) => {
@@ -681,7 +847,7 @@ function loadScenario(index, opts = {}) {
   }
 }
 
-// 7. Camera Mode Controller
+// 8. Camera Mode Controller
 function setCameraMode(mode, resetView = true) {
   cameraMode = mode;
   snapCameraNextFrame = true;
@@ -712,11 +878,17 @@ document.querySelectorAll('.cam-btn').forEach((btn) => {
   btn.addEventListener('click', () => setCameraMode(btn.dataset.cam, true));
 });
 
-// 8. Bidirectional Master Clock Seeking & Frame-Stepping (±0.04s)
+// 9. Bidirectional Master Clock Seeking & Frame-Stepping (±0.04s)
 function getActiveDurationSec() {
   if (activeMocapMode !== 'tactical') {
-    const clipId = activeMocapMode.replace(/^lib:/, '');
-    return Math.max(0.2, getMocapDuration(clipId));
+    const clipId = resolveAtomicClipIdFromMode(activeMocapMode);
+    const meta = SOCCER_ATOMIC_BY_ID.get(clipId);
+    const clip = getAtomicClip(clipId);
+    const rawDur = clip ? clip.duration : meta ? meta.duration : 1.6;
+    if (meta && meta.loop && showcaseRootMotion) {
+      return Math.max(rawDur * 3, 2.4);
+    }
+    return Math.max(0.25, rawDur);
   }
   return SCENARIOS[activeScenarioIndex].durationSec;
 }
@@ -818,6 +990,7 @@ btnToggleSkeletonEl.addEventListener('click', toggleSkeletonXray);
 
 function bindToggleChip(id, key) {
   const el = document.getElementById(id);
+  if (!el) return;
   el.addEventListener('click', () => {
     overlaysConfig[key] = !overlaysConfig[key];
     el.classList.toggle('active', overlaysConfig[key]);
@@ -844,18 +1017,22 @@ window.addEventListener('keydown', (e) => {
   } else if (e.key >= '1' && e.key <= '8') {
     if (activeMocapMode !== 'tactical') setMocapMode('tactical');
     loadScenario(parseInt(e.key, 10) - 1);
+  } else if (e.key.toLowerCase() === 'w') {
+    toggleStudioWhiteBoxMode();
   } else if (e.key.toLowerCase() === 'x') {
     toggleSkeletonXray();
   }
 });
 
-// 9. Frame Evaluation & Render Loop
+// 10. Frame Evaluation & Render Loop
 const prevBallPos = new BABYLON.Vector3();
 
 function updateRigTelemetryUI(playerModel) {
   if (!playerModel || !playerModel.telemetry) return;
   const tel = playerModel.telemetry;
-  rigBoneCountEl.textContent = `Babylon PBR · ${tel.boneCount} Bones (一体成型)`;
+  rigBoneCountEl.textContent = overlaysConfig.whiteBoxMode
+    ? `White-Model 素体 · ${tel.boneCount} Bones`
+    : `Stadium Kit · ${tel.boneCount} Bones`;
   rigActiveClipEl.textContent = tel.activeClip;
   rigActiveFootEl.textContent = tel.activeFoot;
   rigJointAnglesEl.textContent = `Knee ${tel.kneeFlexDeg}° · Ankle ${tel.anklePitchDeg}°/${tel.ankleEversionDeg}°`;
@@ -878,74 +1055,89 @@ function applyCameraSmoothing(targetFovDeg = 35) {
 }
 
 function evaluateFrame(dt) {
-  // Mode A: 32-Clip Official Mixamo《Soccer Pack》Showcase Inspector
+  // Mode A: 86-Clip Canonical White-Model Football Atomic Library Showcase
   if (activeMocapMode !== 'tactical') {
-    const clipId = activeMocapMode.replace(/^lib:/, '');
-    const meta = getMocapMeta(clipId);
+    const clipId = resolveAtomicClipIdFromMode(activeMocapMode);
+    const meta = SOCCER_ATOMIC_BY_ID.get(clipId) || SOCCER_ATOMIC_CATALOG[0];
     const dur = getActiveDurationSec();
 
     if (isPlaying && dt > 0) {
-      currentSec = (currentSec + dt * playbackSpeed) % dur;
+      const nextT = currentSec + dt * playbackSpeed;
+      if (nextT >= dur) {
+        currentSec = nextT % dur;
+        snapCameraNextFrame = true;
+      } else {
+        currentSec = nextT;
+      }
     }
 
     sliderEl.value = Math.round((currentSec / dur) * 1000);
     timeReadoutEl.textContent = `${currentSec.toFixed(2)}s / ${dur.toFixed(2)}s`;
 
-    phaseBadgeEl.textContent = `Mixamo《Soccer Pack》 · ${meta.category}`;
-    phaseDescEl.textContent = `${meta.label} —— 一体成型 65 骨零破洞模型 + 官方动作捕捉原片检阅（支持 0.25x 慢放、±1帧步进与 [X] 骨骼透视）。`;
-    if (hudMocapBadgeEl) {
-      hudMocapBadgeEl.textContent = `Mixamo Clip: ${clipId} (100%) · Frame ${Math.round(currentSec * 60)}/${Math.round(dur * 60)}`;
-    }
+    phaseBadgeEl.textContent = meta.categoryLabel;
+    phaseDescEl.textContent = `${meta.label} —— 65 骨白模雕塑素体 + 1.0m 标定网格 + 左右脚支撑触地环检阅（支持 Root 位移、0.25x 慢放、±1帧步进与 [W] 球衣切换）。`;
 
-    matchBall.position.set(0.18, 0.115, 8.38);
     overlaysConfig.cameraMode = cameraMode;
 
+    let rx = 0;
+    let rz = 8.0;
+    let ryaw = 0;
+
     if (showcasePedriActor) {
-      const isKickOrPass =
-        clipId.includes('pass') ||
-        clipId.includes('through') ||
-        clipId.includes('shot') ||
-        clipId.includes('kick');
       updateBabylonPlayerPose(
         showcasePedriActor,
         {
-          showcaseMode: true,
-          tSec: currentSec,
-          x: 0,
-          z: 8.0,
-          yaw: 0,
-          vx: 0,
-          vz: 0,
-          speed: 0,
-          primaryClip: clipId,
+          atomicShowcaseClipId: clipId,
+          useRootMotion: showcaseRootMotion,
+          originX: 0,
+          originZ: 8.0,
+          originYaw: 0,
           clipTime: currentSec,
-          ballTouch:
-            isKickOrPass && currentSec > dur * 0.32 && currentSec < dur * 0.56
-              ? { foot: 'R', type: 'inside', weight: 0.7 }
-              : null
+          tSec: currentSec
         },
         overlaysConfig
       );
+      rx = showcasePedriActor.root.position.x;
+      rz = showcasePedriActor.root.position.z;
+      ryaw = showcasePedriActor.root.rotation.y;
       updateRigTelemetryUI(showcasePedriActor);
+      if (hudMocapBadgeEl) {
+        hudMocapBadgeEl.textContent = `${showcasePedriActor.activeMocapDebug} · ${currentSec.toFixed(2)}s/${dur.toFixed(2)}s`;
+      }
+    }
+
+    const isBallClip =
+      meta.category === '03_first_touch' ||
+      meta.category === '05_feints_skills' ||
+      meta.category === '06_pass_strike' ||
+      clipId.includes('dribble') ||
+      clipId.includes('ball');
+    if (isBallClip) {
+      matchBall.position.set(rx + Math.sin(ryaw) * 0.36, 0.115, rz + Math.cos(ryaw) * 0.36);
+    } else {
+      matchBall.position.set(0.36, 0.115, 8.42);
     }
 
     if (cameraMode !== 'free') {
       if (cameraMode === 'ankle') {
-        desiredCamTarget.set(0.05, 0.45, 8.15);
-        desiredCamPos.set(1.85, 0.78, 9.95);
+        desiredCamTarget.set(rx + 0.04, 0.48, rz + 0.10);
+        desiredCamPos.set(rx + 1.95, 0.84, rz + 1.95);
       } else if (cameraMode === 'topdown') {
-        desiredCamTarget.set(0, 0.5, 8.0);
-        desiredCamPos.set(0.01, 12.0, 8.8);
+        desiredCamTarget.set(rx, 0.4, rz);
+        desiredCamPos.set(rx + 0.02, 11.5, rz + 0.8);
+      } else if (cameraMode === 'pedri') {
+        desiredCamTarget.set(rx + Math.sin(ryaw) * 2.2, 0.95, rz + Math.cos(ryaw) * 2.2);
+        desiredCamPos.set(rx - Math.sin(ryaw) * 3.4, 1.85, rz - Math.cos(ryaw) * 3.4);
       } else {
-        desiredCamTarget.set(0, 0.94, 8.0);
-        desiredCamPos.set(2.85, 1.65, 11.1);
+        desiredCamTarget.set(rx, 0.92, rz);
+        desiredCamPos.set(rx + 2.85, 1.72, rz + 3.15);
       }
       applyCameraSmoothing(34);
     }
     return;
   }
 
-  // Mode B: 8 Canonical Zhibo8 Scenarios — Master Clock Locked 1:1 to Video
+  // Mode B: 18 Canonical Zhibo8 Scenarios — Multi-Clip C2-Inertialized Assembled Sequences Locked 1:1 to Video
   let sc = SCENARIOS[activeScenarioIndex];
   let dur = sc.durationSec;
 
@@ -971,7 +1163,7 @@ function evaluateFrame(dt) {
   sliderEl.value = Math.round((currentSec / dur) * 1000);
   timeReadoutEl.textContent = `${currentSec.toFixed(2)}s / ${dur.toFixed(2)}s`;
 
-  const evalState = evaluateScenarioAtTime(sc, currentSec);
+  const evalState = evaluateScenarioAtTime(sc, currentSec, getHeroRigContext());
 
   phaseBadgeEl.textContent = evalState.phase.label;
   phaseDescEl.textContent = evalState.phase.desc;
@@ -1017,14 +1209,18 @@ function evaluateFrame(dt) {
     updateBabylonPlayerPose(actorObj.model, st, overlaysConfig);
   });
 
+  if (pedriState && pedriState.activeSegmentIndex !== undefined) {
+    highlightActiveAssemblyNode(pedriState.activeSegmentIndex);
+  }
+
   if (pedriModel) {
     updateRigTelemetryUI(pedriModel);
     if (hudMocapBadgeEl) {
       const syncTag =
         syncVideoTo3D && videoReady && activeSubClipIndex === 0
-          ? `视频主时钟 1:1 锁定 (${currentSec.toFixed(2)}s)`
+          ? `视频 1:1 锁定 (${currentSec.toFixed(2)}s)`
           : `时间轴 (${currentSec.toFixed(2)}s)`;
-      hudMocapBadgeEl.textContent = `Mixamo Soccer: ${pedriModel.activeMocapDebug} · ${syncTag}`;
+      hudMocapBadgeEl.textContent = `${pedriModel.activeMocapDebug} · ${syncTag}`;
     }
   }
 
@@ -1034,7 +1230,7 @@ function evaluateFrame(dt) {
         Math.abs(pedriState.leanRoll || 0) * 3.4,
         pedriState.crouch || 0,
         pedriState.blendWeight || 0,
-        pedriState.ballTouch ? pedriState.ballTouch.weight * 0.92 : 0.2
+        pedriState.ballTouch ? pedriState.ballTouch.weight * 0.92 : 0.35
       )
     : 0.3;
   const decepPct = Math.round(clamp(decepRaw * 100, 15, 99));
@@ -1084,7 +1280,73 @@ function evaluateFrame(dt) {
   }
 }
 
-// 10. Boot Studio & Expose Deterministic Visual QA API
+function extractActorBiomechanics(playerModel, ballVec) {
+  if (!playerModel || !playerModel.boneNodes) return null;
+  playerModel.root.computeWorldMatrix(true);
+  playerModel.posePivot.computeWorldMatrix(true);
+  if (playerModel.gltfRoot) playerModel.gltfRoot.computeWorldMatrix(true);
+  const bn = playerModel.boneNodes;
+  for (const tn of bn.values()) tn.computeWorldMatrix(true);
+
+  const posOf = (n) => {
+    const node = bn.get(n);
+    if (!node) return null;
+    const p = node.getAbsolutePosition();
+    return [Number(p.x.toFixed(4)), Number(p.y.toFixed(4)), Number(p.z.toFixed(4))];
+  };
+  const hipsP = posOf('mixamorig:Hips');
+  const neckP = posOf('mixamorig:Neck');
+  const headP = posOf('mixamorig:Head');
+  const lFootP = posOf('mixamorig:LeftFoot');
+  const lToeP = posOf('mixamorig:LeftToeBase');
+  const rFootP = posOf('mixamorig:RightFoot');
+  const rToeP = posOf('mixamorig:RightToeBase');
+  const ballP = [
+    Number(ballVec.x.toFixed(4)),
+    Number(ballVec.y.toFixed(4)),
+    Number(ballVec.z.toFixed(4))
+  ];
+  const unitY = (a, b) => {
+    if (!a || !b) return 0;
+    const dx = b[0] - a[0];
+    const dy = b[1] - a[1];
+    const dz = b[2] - a[2];
+    const len = Math.hypot(dx, dy, dz) || 1;
+    return Number((dy / len).toFixed(4));
+  };
+  const dist3 = (a, b) =>
+    a && b ? Number(Math.hypot(a[0] - b[0], a[1] - b[1], a[2] - b[2]).toFixed(4)) : 99;
+
+  return {
+    rootPos: [
+      Number(playerModel.root.position.x.toFixed(4)),
+      Number(playerModel.root.position.y.toFixed(4)),
+      Number(playerModel.root.position.z.toFixed(4))
+    ],
+    rootYaw: Number(playerModel.root.rotation.y.toFixed(4)),
+    hipsPos: hipsP,
+    neckPos: neckP,
+    headPos: headP,
+    spineUpDot: unitY(hipsP, neckP),
+    lFootPos: lFootP,
+    rFootPos: rFootP,
+    lToePos: lToeP,
+    rToePos: rToeP,
+    lToeSlopeY: unitY(lFootP, lToeP),
+    rToeSlopeY: unitY(rFootP, rToeP),
+    plantedFeet: playerModel.telemetry?.plantedFeet || '',
+    ballPos: ballP,
+    minFootToBallDist: Math.min(
+      dist3(lFootP, ballP),
+      dist3(rFootP, ballP),
+      dist3(lToeP, ballP),
+      dist3(rToeP, ballP)
+    ),
+    activeMocapDebug: playerModel.activeMocapDebug || ''
+  };
+}
+
+// 11. Boot Studio & Expose Deterministic Visual & Continuity QA API
 buildScenarioSidebar();
 loadScenario(0);
 updatePlayButtonLabel();
@@ -1102,10 +1364,13 @@ window.__STUDIO_DEBUG__ = {
   waitReady: () => rigReadyPromise,
   isReady: () => rigLoaded,
   getScenarioCount: () => SCENARIOS.length,
+  getAtomicCatalog: () => SOCCER_ATOMIC_CATALOG,
   pauseRenderLoop: () => engine.stopRenderLoop(),
   setSplitLayout: (split) => applySplitLayout(split),
+  setWhiteBoxMode: (enabled) => setStudioWhiteBoxMode(enabled),
   setPositionFilter: (pos, autoSelectFirst = false) => setPositionFilter(pos, autoSelectFirst),
   setOverlays: (cfg) => {
+    if (cfg.whiteBoxMode !== undefined) setStudioWhiteBoxMode(cfg.whiteBoxMode);
     Object.assign(overlaysConfig, cfg);
     setSkeletonXray(overlaysConfig.showSkeleton);
   },
@@ -1119,7 +1384,6 @@ window.__STUDIO_DEBUG__ = {
     }
     setSkeletonXray(showXray);
 
-    // Wait until video metadata is ready if visible so video frame matches 1:1
     if (splitLayout && zhibo8ClipEl.src) {
       await new Promise((resolve) => {
         if (zhibo8ClipEl.readyState >= 2) return resolve();
@@ -1152,55 +1416,15 @@ window.__STUDIO_DEBUG__ = {
     await scene.whenReadyAsync(true);
     scene.render();
     scene.render();
+
     const heroObj = activeActors.find((a) => isHeroRole(a.def.role));
-    let biomechanics = null;
-    if (heroObj && heroObj.model?.boneNodes) {
-      const bn = heroObj.model.boneNodes;
-      for (const tn of bn.values()) tn.computeWorldMatrix(true);
-      const posOf = (n) => {
-        const node = bn.get(n);
-        if (!node) return null;
-        const p = node.getAbsolutePosition();
-        return [Number(p.x.toFixed(4)), Number(p.y.toFixed(4)), Number(p.z.toFixed(4))];
-      };
-      const hipsP = posOf('mixamorig:Hips');
-      const neckP = posOf('mixamorig:Neck');
-      const lFootP = posOf('mixamorig:LeftFoot');
-      const lToeP = posOf('mixamorig:LeftToeBase');
-      const rFootP = posOf('mixamorig:RightFoot');
-      const rToeP = posOf('mixamorig:RightToeBase');
-      const ballP = [
-        Number(matchBall.position.x.toFixed(4)),
-        Number(matchBall.position.y.toFixed(4)),
-        Number(matchBall.position.z.toFixed(4))
-      ];
-      const unitY = (a, b) => {
-        if (!a || !b) return 0;
-        const dx = b[0] - a[0];
-        const dy = b[1] - a[1];
-        const dz = b[2] - a[2];
-        const len = Math.hypot(dx, dy, dz) || 1;
-        return Number((dy / len).toFixed(4));
-      };
-      const dist3 = (a, b) =>
-        a && b ? Number(Math.hypot(a[0] - b[0], a[1] - b[1], a[2] - b[2]).toFixed(4)) : 99;
-      biomechanics = {
-        hipsPos: hipsP,
-        neckPos: neckP,
-        spineUpDot: unitY(hipsP, neckP),
-        lFootPos: lFootP,
-        rFootPos: rFootP,
-        lToeSlopeY: unitY(lFootP, lToeP),
-        rToeSlopeY: unitY(rFootP, rToeP),
-        ballPos: ballP,
-        minFootToBallDist: Math.min(dist3(lFootP, ballP), dist3(rFootP, ballP), dist3(lToeP, ballP), dist3(rToeP, ballP)),
-        activeMocapDebug: heroObj.model.activeMocapDebug || ''
-      };
-    }
+    const biomechanics = heroObj ? extractActorBiomechanics(heroObj.model, matchBall.position) : null;
+
     return {
       scenario: SCENARIOS[activeScenarioIndex].id,
       positionGroup: SCENARIOS[activeScenarioIndex].positionGroup,
       starName: SCENARIOS[activeScenarioIndex].starName,
+      whiteBoxMode: overlaysConfig.whiteBoxMode,
       currentSec,
       videoTime: zhibo8ClipEl.currentTime,
       actorCount: activeActors.length,
@@ -1208,18 +1432,36 @@ window.__STUDIO_DEBUG__ = {
       biomechanics
     };
   },
-  async inspectMocapClip(clipId, sec, customCam = null, showXray = false, showLabels = false) {
+  async inspectAtomicClip(
+    clipId,
+    sec,
+    useRootMotion = true,
+    customCam = null,
+    showXray = false,
+    showLabels = false
+  ) {
     await rigReadyPromise;
-    setMocapMode(`lib:${clipId}`);
+    showcaseRootMotion = Boolean(useRootMotion);
+    setMocapMode(`atomic:${clipId}`);
     setSkeletonXray(showXray);
     overlaysConfig.showLabels = showLabels;
     seekToSecond(sec, true);
 
+    // Evaluate pose once first so root position is updated before custom/tracked camera framing
+    evaluateFrame(0);
+
     if (customCam) {
       setCameraMode('free', false);
-      freeCamera.fov = ((customCam.fovDeg || 28) * Math.PI) / 180;
-      freeCamera.setTarget(new BABYLON.Vector3(...customCam.target));
-      freeCamera.setPosition(new BABYLON.Vector3(...customCam.pos));
+      freeCamera.fov = ((customCam.fovDeg || 30) * Math.PI) / 180;
+      const rx = showcasePedriActor ? showcasePedriActor.root.position.x : 0;
+      const rz = showcasePedriActor ? showcasePedriActor.root.position.z : 8.0;
+      if (customCam.trackRoot) {
+        freeCamera.setTarget(new BABYLON.Vector3(rx + customCam.targetOffset[0], customCam.targetOffset[1], rz + customCam.targetOffset[2]));
+        freeCamera.setPosition(new BABYLON.Vector3(rx + customCam.posOffset[0], customCam.posOffset[1], rz + customCam.posOffset[2]));
+      } else {
+        freeCamera.setTarget(new BABYLON.Vector3(...customCam.target));
+        freeCamera.setPosition(new BABYLON.Vector3(...customCam.pos));
+      }
     } else {
       setCameraMode('broadcast', false);
       snapCameraNextFrame = true;
@@ -1229,10 +1471,113 @@ window.__STUDIO_DEBUG__ = {
     await scene.whenReadyAsync(true);
     scene.render();
     scene.render();
+
+    const biomechanics = showcasePedriActor
+      ? extractActorBiomechanics(showcasePedriActor, matchBall.position)
+      : null;
+
     return {
       clipId,
       currentSec,
-      telemetry: showcasePedriActor ? showcasePedriActor.telemetry : null
+      useRootMotion: showcaseRootMotion,
+      whiteBoxMode: overlaysConfig.whiteBoxMode,
+      telemetry: showcasePedriActor ? showcasePedriActor.telemetry : null,
+      biomechanics
+    };
+  },
+  async inspectMocapClip(clipId, sec, customCam = null, showXray = false, showLabels = false) {
+    return this.inspectAtomicClip(clipId, sec, true, customCam, showXray, showLabels);
+  },
+  async auditSequenceContinuity(scenarioIdx, stepSec = 0.04) {
+    await rigReadyPromise;
+    if (activeMocapMode !== 'tactical') setMocapMode('tactical');
+    if (activeScenarioIndex !== scenarioIdx) loadScenario(scenarioIdx);
+
+    const sc = SCENARIOS[scenarioIdx];
+    const heroIdx = activeActors.findIndex((a) => isHeroRole(a.def.role));
+    const heroObj = heroIdx >= 0 ? activeActors[heroIdx] : activeActors[0];
+    if (!heroObj) return null;
+
+    const rigCtx = getHeroRigContext();
+    const dur = sc.durationSec;
+    const steps = Math.max(2, Math.floor(dur / stepSec));
+
+    let prevBio = null;
+    let maxRootStepMeters = 0;
+    let maxPelvisStepMeters = 0;
+    let maxFootStepMeters = 0;
+    let minHipsY = 99;
+    let maxHipsY = -99;
+    let minSpineUpDot = 1.0;
+
+    const dist3 = (a, b) => Math.hypot(a[0] - b[0], a[1] - b[1], a[2] - b[2]);
+    let compiledSeq = null;
+
+    for (let i = 0; i <= steps; i++) {
+      const t = Math.min(dur, Number((i * stepSec).toFixed(4)));
+      const evalSt = evaluateScenarioAtTime(sc, t, rigCtx);
+      const st = evalSt.actorStates[heroIdx >= 0 ? heroIdx : 0];
+      if (st.compiledSequence) compiledSeq = st.compiledSequence;
+      updateBabylonPlayerPose(heroObj.model, st, overlaysConfig);
+      const bio = extractActorBiomechanics(heroObj.model, matchBall.position);
+      if (!bio) continue;
+
+      minHipsY = Math.min(minHipsY, bio.hipsPos[1]);
+      maxHipsY = Math.max(maxHipsY, bio.hipsPos[1]);
+      minSpineUpDot = Math.min(minSpineUpDot, bio.spineUpDot);
+
+      if (prevBio) {
+        const rootStep = dist3(bio.rootPos, prevBio.rootPos);
+        const pelvisStep = dist3(bio.hipsPos, prevBio.hipsPos);
+        const lFootStep = dist3(bio.lFootPos, prevBio.lFootPos);
+        const rFootStep = dist3(bio.rFootPos, prevBio.rFootPos);
+        maxRootStepMeters = Math.max(maxRootStepMeters, rootStep);
+        maxPelvisStepMeters = Math.max(maxPelvisStepMeters, pelvisStep);
+        maxFootStepMeters = Math.max(maxFootStepMeters, lFootStep, rFootStep);
+      }
+      prevBio = bio;
+    }
+
+    // Measure exact micro-step across every segment seam (tSeam - 0.015s -> tSeam + 0.015s)
+    const seamRecords = [];
+    if (compiledSeq && compiledSeq.segments) {
+      for (let sIdx = 1; sIdx < compiledSeq.segments.length; sIdx++) {
+        const seg = compiledSeq.segments[sIdx];
+        const tA = Math.max(0, seg.tStart - 0.015);
+        const tB = Math.min(dur, seg.tStart + 0.015);
+
+        const stA = evaluateScenarioAtTime(sc, tA, rigCtx).actorStates[heroIdx >= 0 ? heroIdx : 0];
+        updateBabylonPlayerPose(heroObj.model, stA, overlaysConfig);
+        const bioA = extractActorBiomechanics(heroObj.model, matchBall.position);
+
+        const stB = evaluateScenarioAtTime(sc, tB, rigCtx).actorStates[heroIdx >= 0 ? heroIdx : 0];
+        updateBabylonPlayerPose(heroObj.model, stB, overlaysConfig);
+        const bioB = extractActorBiomechanics(heroObj.model, matchBall.position);
+
+        seamRecords.push({
+          seamIdx: sIdx,
+          tSeam: Number(seg.tStart.toFixed(3)),
+          fromClip: compiledSeq.segments[sIdx - 1].clipId,
+          toClip: seg.clipId,
+          pelvisStep30ms: Number(dist3(bioA.hipsPos, bioB.hipsPos).toFixed(4)),
+          headStep30ms: Number(dist3(bioA.headPos, bioB.headPos).toFixed(4)),
+          lFootStep30ms: Number(dist3(bioA.lFootPos, bioB.lFootPos).toFixed(4)),
+          rFootStep30ms: Number(dist3(bioA.rFootPos, bioB.rFootPos).toFixed(4))
+        });
+      }
+    }
+
+    return {
+      scenario: sc.id,
+      segmentCount: compiledSeq ? compiledSeq.segments.length : 0,
+      stepSec,
+      maxRootStepMeters: Number(maxRootStepMeters.toFixed(4)),
+      maxPelvisStepMeters: Number(maxPelvisStepMeters.toFixed(4)),
+      maxFootStepMeters: Number(maxFootStepMeters.toFixed(4)),
+      minHipsY: Number(minHipsY.toFixed(4)),
+      maxHipsY: Number(maxHipsY.toFixed(4)),
+      minSpineUpDot: Number(minSpineUpDot.toFixed(4)),
+      seamRecords
     };
   }
 };

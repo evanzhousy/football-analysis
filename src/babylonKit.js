@@ -640,6 +640,7 @@ export function applyBabylonFootballerKit(scene, meshes, actorDef, shadowGen) {
   for (const mesh of meshes) {
     if (!mesh || !mesh.getTotalVertices || mesh.getTotalVertices() === 0) continue;
 
+    mesh.isVisible = true;
     mesh.receiveShadows = true;
     mesh.alwaysSelectAsActiveMesh = true;
     if (shadowGen) {
@@ -743,3 +744,74 @@ export function applyBabylonFootballerKit(scene, meshes, actorDef, shadowGen) {
     }
   }
 }
+
+const mannequinMatCache = new Map();
+
+/**
+ * Applies clean Unreal/HyperMotion-style Sculpted Studio White-Model (白模) materials
+ * onto the 65-bone athlete so limb trajectories, hip tilt, knee hinges, and foot plants
+ * read with zero jersey/color distraction.
+ *   - Hero athlete: Alabaster architectural clay (`#eef2f7`) + slate articulated pelvis (`#cbd5e1`)
+ *   - Opponent / presser: Cool slate clay (`#64748b`) + graphite pelvis (`#475569`)
+ *   - Teammate: Soft ice-blue clay (`#bae6fd`)
+ */
+export function applyBabylonMannequinClay(scene, meshes, actorDef, shadowGen) {
+  const isHero = actorDef.role === 'pedri' || actorDef.role === 'hero';
+  const isMate = actorDef.role === 'teammate';
+  const roleKey = isHero ? 'hero' : isMate ? 'mate' : 'opp';
+
+  if (!cachedSharedBump) {
+    for (const m of meshes) {
+      if (m.material && m.material.bumpTexture) {
+        cachedSharedBump = m.material.bumpTexture;
+        break;
+      }
+    }
+  }
+
+  function getClayMat(part, hex, rough = 0.56, metal = 0.04, bumpLvl = 0.55) {
+    const k = `${roleKey}_${part}_${hex}`;
+    if (mannequinMatCache.has(k)) return mannequinMatCache.get(k);
+    const mat = new BABYLON.PBRMaterial(`WhiteModel_${k}`, scene);
+    mat.albedoColor = BABYLON.Color3.FromHexString(hex).toLinearSpace();
+    if (cachedSharedBump && bumpLvl > 0) {
+      mat.bumpTexture = cachedSharedBump;
+      mat.bumpTexture.level = bumpLvl;
+    }
+    mat.roughness = rough;
+    mat.metallic = metal;
+    mat.backFaceCulling = false;
+    mannequinMatCache.set(k, mat);
+    return mat;
+  }
+
+  const bodyHex = isHero ? '#eef2f6' : isMate ? '#cbd5e1' : '#7c8aa0';
+  const pelvisHex = isHero ? '#cbd5e1' : isMate ? '#94a3b8' : '#526075';
+  const bootHex = isHero ? '#334155' : '#1e293b';
+  const headCapHex = isHero ? '#dbe4ee' : '#64748b';
+
+  for (const mesh of meshes) {
+    if (!mesh || !mesh.getTotalVertices || mesh.getTotalVertices() === 0) continue;
+    mesh.receiveShadows = true;
+    mesh.alwaysSelectAsActiveMesh = true;
+    if (shadowGen) shadowGen.addShadowCaster(mesh, false);
+
+    const nm = mesh.name || '';
+    if (nm.includes('Eyelashes')) {
+      mesh.isVisible = false;
+      continue;
+    }
+    mesh.isVisible = true;
+
+    if (nm.includes('Ch42_Shorts')) {
+      mesh.material = getClayMat('pelvis', pelvisHex, 0.58, 0.05, 0.45);
+    } else if (nm.includes('Ch42_Sneakers')) {
+      mesh.material = getClayMat('boots', bootHex, 0.42, 0.12, 0.65);
+    } else if (nm.includes('Hair')) {
+      mesh.material = getClayMat('headcap', headCapHex, 0.68, 0.02, 0.0);
+    } else {
+      mesh.material = getClayMat('body', bodyHex, 0.52, 0.04, 0.55);
+    }
+  }
+}
+
