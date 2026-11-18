@@ -19,30 +19,40 @@
       <div class="brand-group">
         <div id="brand-jersey-crest" class="jersey-crest" aria-hidden="true">8</div>
         <div class="brand-titles">
-          <h1>全位置抗逼抢与摆脱 3D 实验室 · 白模 86 组足球原子动作库 × C2 惯性组装 × 1:1 实况对照</h1>
-          <p class="brand-subtitle">Babylon.js 7.54 + 65 骨白模素体 (1.0m 标定网格 + 左右足触地环) + 86 组 120Hz 光学原子动作库 + C2 惯性序列组装器</p>
+          <h1>全位置抗逼抢与摆脱 3D 实验室 · 白模 86 组原子库 × 整场逼抢切片四维归类</h1>
+          <p class="brand-subtitle">Babylon.js 7.54 65 骨白模 C2 惯性组装 + 90/120 分钟整场持球逼抢自动切片 · 热力追踪 · 1:1 拆解</p>
         </div>
       </div>
 
-      <nav class="camera-toolbar" aria-label="白模足球原子动作库、素体模式与 3D 摄像机切换">
+      <div class="workspace-switcher" role="tablist" aria-label="切换3D动作实验室与整场逼抢切片归类工作台">
+        <button id="btn-workspace-3d" class="ws-tab-btn active" type="button" title="单回合 3D 白模动作实验室">🔬 3D实验室</button>
+        <button id="btn-workspace-fullmatch" class="ws-tab-btn" type="button" title="90分钟整场持球逼抢画面自动切片与四维归类 · 快捷键 [M]">🏟️ 整场切片归类 <em>124</em></button>
+      </div>
+
+      <nav id="lab-camera-toolbar" class="camera-toolbar" aria-label="白模足球原子动作库、素体模式与 3D 摄像机切换">
         <select id="mocap-mode-select" class="mocap-select" aria-label="切换18大组装复杂动作场景或单独检阅86组白模足球原子动作库">
           <option value="tactical">⚽ 组装复杂动作 × 实况视频 1:1 对照 (18大场景)</option>
         </select>
-        <button id="btn-whitebox-top" class="toggle-chip whitebox-chip active" type="button" title="切换白模雕塑检阅模式（1.0m标定网格+左右脚触地支撑环）与实况球衣草皮模式，快捷键 [W]">🦴 白模检阅(W)</button>
+        <button id="btn-whitebox-top" class="toggle-chip whitebox-chip active" type="button" title="切换白模雕塑检阅模式（1.0m标定网格+左右脚触地支撑环）与实况球衣草皮模式，快捷键 [W]">🦴 白模(W)</button>
         <button id="btn-rootmotion-top" class="toggle-chip active" type="button" style="display:none;" title="原子动作库检阅时切换真实 Root Motion 位移与原地检阅">Root位移</button>
         <button id="btn-xray-top" class="toggle-chip" type="button" title="快捷键 [X]">65骨透视</button>
-        <button id="btn-layout-split" class="toggle-chip active" type="button">视频+3D同屏</button>
-        <span class="toolbar-label" style="margin-left:2px;">机位</span>
-        <button id="cam-broadcast" class="cam-btn active" data-cam="broadcast" type="button">转播对齐</button>
-        <button id="cam-pedri" class="cam-btn" data-cam="pedri" type="button">主角肩后</button>
-        <button id="cam-ankle" class="cam-btn" data-cam="ankle" type="button">足踝特写</button>
+        <button id="btn-layout-split" class="toggle-chip active" type="button">视频+3D</button>
+        <button id="cam-broadcast" class="cam-btn active" data-cam="broadcast" type="button">转播</button>
+        <button id="cam-pedri" class="cam-btn" data-cam="pedri" type="button">肩后</button>
+        <button id="cam-ankle" class="cam-btn" data-cam="ankle" type="button">足踝</button>
         <button id="cam-topdown" class="cam-btn" data-cam="topdown" type="button">俯视</button>
         <button id="cam-free" class="cam-btn" data-cam="free" type="button">自由3D</button>
       </nav>
+
+      <div id="fullmatch-top-actions" class="fullmatch-top-actions" style="display:none;"></div>
     </header>
 
     <!-- Left Sidebar: 18 Multi-Position Pressing & Escape Scenarios -->
     <aside class="scenario-sidebar" aria-label="18大全位置逼抢与摆脱场景目录">
+      <div id="dynamic-slice-return-bar" class="dynamic-slice-return-bar" style="display:none;">
+        <div id="dynamic-slice-return-meta" class="dynamic-slice-return-meta">正在重演整场切片</div>
+        <button id="btn-return-fullmatch" class="dynamic-slice-return-btn" type="button">⬅ 返回整场切片归类台</button>
+      </div>
       <div class="panel-header">
         <h2>全位置逼抢与摆脱库</h2>
         <span id="scenario-count-badge" class="panel-count">18 SCENARIOS</span>
@@ -284,6 +294,14 @@
         </div>
       </div>
     </aside>
+
+    <!-- Full-Match Ball-Carrying & Pressing Breakdown Workspace -->
+    <section
+      id="fullmatch-workspace"
+      class="fullmatch-workspace"
+      style="display:none;"
+      aria-label="整场比赛持球逼抢画面自动切片与四维归类工作台"
+    ></section>
   </div>
 
   <script type="module" src="./src/main.js"></script>

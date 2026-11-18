@@ -18,6 +18,9 @@ import {
 import { getAtomicClip } from './atomicMotionAssembler.js';
 import { SCENARIOS, SCENARIO_ASSEMBLED_SEQUENCES, evaluateScenarioAtTime } from './scenarios.js';
 import { SCENARIO_VIDEOS, MASTER_ZHIBO8_REEL } from './videos.js';
+import { PRESSING_TAXONOMY } from './fullMatchSamples.js';
+import { buildDynamic3DScenarioFromSlice } from './fullMatchEngine.js';
+import { initFullMatchWorkspace } from './fullMatchWorkspace.js';
 
 function clamp(v, lo, hi) {
   return Math.max(lo, Math.min(hi, v));
@@ -27,6 +30,7 @@ function lerp(a, b, t) {
   return a + (b - a) * t;
 }
 
+const studioShellEl = document.querySelector('.studio-shell');
 const container = document.getElementById('three-canvas-container');
 const viewportStageEl = document.getElementById('viewport-stage');
 
@@ -106,13 +110,20 @@ const scenarioGroup = new BABYLON.TransformNode('ScenarioGroup', scene);
 const mocapShowcaseGroup = new BABYLON.TransformNode('MocapShowcaseGroup', scene);
 mocapShowcaseGroup.setEnabled(false);
 
+let workspaceMode = '3d'; // '3d' | 'fullmatch'
 let activeScenarioIndex = 0;
+let activeDynamicScenario = null; // Synthesized 3D scenario from a Full-Match pressing slice
+let activeDynamicVideoRange = null; // { start, end } when playing a direct sub-clip in 3D lab
 let activePositionFilter = 'ALL'; // 'ALL' | 'MF' | 'FW' | 'DF'
 let activeActors = [];
 let activeRibbons = [];
 let snapCameraNextFrame = true;
 let rigLoaded = false;
 let cachedRigContext = null;
+
+function getCurrentScenario() {
+  return activeDynamicScenario || SCENARIOS[activeScenarioIndex];
+}
 
 // Playback, Master Video Clock & 86-Clip White-Model Football Atomic Library State
 let isPlaying = true;
@@ -142,6 +153,14 @@ const overlaysConfig = {
 setWhiteBoxMode(true);
 
 // UI References
+const btnWorkspace3DEl = document.getElementById('btn-workspace-3d');
+const btnWorkspaceFullMatchEl = document.getElementById('btn-workspace-fullmatch');
+const fullMatchWorkspaceEl = document.getElementById('fullmatch-workspace');
+const fullMatchTopActionsEl = document.getElementById('fullmatch-top-actions');
+const dynamicSliceReturnBarEl = document.getElementById('dynamic-slice-return-bar');
+const dynamicSliceReturnMetaEl = document.getElementById('dynamic-slice-return-meta');
+const btnReturnFullMatchEl = document.getElementById('btn-return-fullmatch');
+
 const scenarioListEl = document.getElementById('scenario-list');
 const scenarioCountBadgeEl = document.getElementById('scenario-count-badge');
 const brandJerseyCrestEl = document.getElementById('brand-jersey-crest');
@@ -262,7 +281,7 @@ const rigReadyPromise = preloadBabylonAthleteRig(scene, (done, total) => {
   }
   getHeroRigContext();
   if (activeMocapMode === 'tactical') {
-    matchSourceEl.textContent = SCENARIOS[activeScenarioIndex].matchRef;
+    matchSourceEl.textContent = getCurrentScenario().matchRef;
   }
 });
 
@@ -277,7 +296,7 @@ function setStudioWhiteBoxMode(enabled) {
   if (showcasePedriActor) {
     setPlayerWhiteModelMode(showcasePedriActor, overlaysConfig.whiteBoxMode);
   }
-  updateHeroHeaderAndLegend(SCENARIOS[activeScenarioIndex]);
+  updateHeroHeaderAndLegend(getCurrentScenario());
 }
 
 function toggleStudioWhiteBoxMode() {
@@ -318,10 +337,12 @@ function loadZhibo8ClipElement(srcUrl, titleText, dlFilename, pageUrl, initialTi
       },
       { once: true }
     );
+  } else if (initialTimeSec >= 0 && zhibo8ClipEl.readyState >= 1 && activeDynamicVideoRange) {
+    zhibo8ClipEl.currentTime = clamp(initialTimeSec, 0, Math.max(0, zhibo8ClipEl.duration - 0.05));
   }
 
   zhibo8ClipEl.playbackRate = syncVideoTo3D ? playbackSpeed : 1.0;
-  if (isPlaying) {
+  if (isPlaying && workspaceMode === '3d') {
     zhibo8ClipEl.play().catch(() => {});
   } else if (syncVideoTo3D) {
     zhibo8ClipEl.pause();
@@ -336,8 +357,30 @@ function loadZhibo8ClipElement(srcUrl, titleText, dlFilename, pageUrl, initialTi
   }
 }
 
+zhibo8ClipEl.addEventListener('timeupdate', () => {
+  if (!activeDynamicVideoRange) return;
+  if (
+    zhibo8ClipEl.currentTime >= activeDynamicVideoRange.end ||
+    zhibo8ClipEl.currentTime < activeDynamicVideoRange.start - 0.35
+  ) {
+    zhibo8ClipEl.currentTime = activeDynamicVideoRange.start;
+    if (isPlaying && workspaceMode === '3d') {
+      zhibo8ClipEl.play().catch(() => {});
+    }
+  }
+});
+
 zhibo8ClipEl.addEventListener('seeked', () => {
   if (!syncVideoTo3D || activeMocapMode !== 'tactical') return;
+  if (activeDynamicScenario) {
+    const dur = activeDynamicScenario.durationSec;
+    if (activeDynamicVideoRange) {
+      currentSec = clamp(zhibo8ClipEl.currentTime - activeDynamicVideoRange.start, 0, dur);
+    } else if (zhibo8ClipEl.duration > 0.1) {
+      currentSec = clamp((zhibo8ClipEl.currentTime / zhibo8ClipEl.duration) * dur, 0, dur);
+    }
+    return;
+  }
   if (activeVideoSource === 'zhibo8') {
     const sc = SCENARIOS[activeScenarioIndex];
     if (activeSubClipIndex === 0) {
@@ -364,7 +407,30 @@ function syncScenarioFromMasterReelTime(reelTime) {
 }
 
 function updateRealVideoDeck() {
-  const sc = SCENARIOS[activeScenarioIndex];
+  const sc = getCurrentScenario();
+  if (activeDynamicScenario && sc._fullMatchSlice) {
+    const slice = sc._fullMatchSlice;
+    const meta = sc._fullMatchMeta || {};
+    const isDirect = Boolean(meta.hasDirectFullVideo && meta.videoSrc);
+    const src = isDirect ? meta.videoSrc : slice.refVideoSrc || './assets/videos/s1_zhibo8_half_turn.mp4';
+    activeDynamicVideoRange = isDirect
+      ? { start: Number(slice.tStart || 0), end: Math.max(Number(slice.tStart || 0) + 1.2, Number(slice.tEnd || 4)) }
+      : null;
+
+    zhibo8SubclipsBarEl.style.display = 'flex';
+    zhibo8SubclipsBtnsEl.innerHTML = `<span style="font-size:11px;color:var(--accent-gold);font-weight:600;">🏟️ 整场切片 #${slice.index} (${slice.clock}) × 3D白模1:1空间重演</span>`;
+    videoWatchCueEl.textContent = slice.summary;
+    loadZhibo8ClipElement(
+      src,
+      sc.matchRef,
+      `slice_${slice.id}.mp4`,
+      '#',
+      activeDynamicVideoRange ? activeDynamicVideoRange.start : 0
+    );
+    return;
+  }
+
+  activeDynamicVideoRange = null;
   const v = SCENARIO_VIDEOS[sc.id];
   if (!v) return;
 
@@ -491,7 +557,7 @@ localVideoInputEl.addEventListener('change', (e) => {
 function applySplitLayout(nextSplit) {
   splitLayout = Boolean(nextSplit);
   btnLayoutSplit.classList.toggle('active', splitLayout);
-  btnLayoutSplit.textContent = splitLayout ? '视频+3D同屏' : '开启视频同屏';
+  btnLayoutSplit.textContent = splitLayout ? '视频+3D' : '开视频';
   viewportStageEl.classList.toggle('split-mode', splitLayout);
   viewportStageEl.classList.toggle('full3d-mode', !splitLayout);
   engine.resize();
@@ -507,6 +573,16 @@ function renderAssemblyChainStrip(sc) {
   assemblyChainStripEl.innerHTML = '';
   lastHighlightedSegIdx = -1;
 
+  if (activeDynamicScenario && activeMocapMode === 'tactical') {
+    const retBtn = document.createElement('button');
+    retBtn.type = 'button';
+    retBtn.className = 'assembly-node-btn active';
+    retBtn.style.marginRight = '4px';
+    retBtn.innerHTML = '<span>⬅ 返回整场逼抢切片台</span>';
+    retBtn.addEventListener('click', () => setWorkspaceMode('fullmatch'));
+    assemblyChainStripEl.appendChild(retBtn);
+  }
+
   if (activeMocapMode !== 'tactical') {
     const clipId = activeMocapMode.replace(/^(atomic:|lib:)/, '');
     const meta = SOCCER_ATOMIC_BY_ID.get(clipId);
@@ -518,7 +594,7 @@ function renderAssemblyChainStrip(sc) {
     const backBtn = document.createElement('button');
     backBtn.type = 'button';
     backBtn.className = 'assembly-node-btn active';
-    backBtn.innerHTML = '<span>⬅ 返回 18 场景复杂动作组装模式</span>';
+    backBtn.innerHTML = '<span>⬅ 返回复杂动作组装模式</span>';
     backBtn.addEventListener('click', () => setMocapMode('tactical'));
     assemblyChainStripEl.appendChild(backBtn);
 
@@ -576,7 +652,7 @@ function renderAssemblyChainStrip(sc) {
 function highlightActiveAssemblyNode(segIdx) {
   if (!assemblyChainStripEl || segIdx === lastHighlightedSegIdx) return;
   lastHighlightedSegIdx = segIdx;
-  assemblyChainStripEl.querySelectorAll('.assembly-node-btn').forEach((btn) => {
+  assemblyChainStripEl.querySelectorAll('.assembly-node-btn[data-seg-idx]').forEach((btn) => {
     btn.classList.toggle('active', Number(btn.dataset.segIdx) === segIdx);
   });
 }
@@ -605,7 +681,11 @@ function setMocapMode(mode) {
     clearShowcaseObjects();
     mocapShowcaseGroup.setEnabled(false);
     scenarioGroup.setEnabled(true);
-    loadScenario(activeScenarioIndex);
+    if (activeDynamicScenario) {
+      applyScenarioToStage(activeDynamicScenario);
+    } else {
+      loadScenario(activeScenarioIndex);
+    }
     return;
   }
 
@@ -625,7 +705,7 @@ function setMocapMode(mode) {
   scenarioGroup.setEnabled(false);
   mocapShowcaseGroup.setEnabled(true);
 
-  const curSc = SCENARIOS[activeScenarioIndex];
+  const curSc = getCurrentScenario();
   const heroDef = curSc.actors.find((a) => isHeroRole(a.role)) || curSc.actors[0];
   clearShowcaseObjects();
   showcasePedriActor = createBabylonPlayer(
@@ -670,7 +750,7 @@ function buildScenarioSidebar() {
     btn.type = 'button';
     btn.id = `scenario-btn-${sc.index}`;
     btn.dataset.scenarioIdx = String(idx);
-    btn.className = `scenario-item${idx === activeScenarioIndex ? ' active' : ''}`;
+    btn.className = `scenario-item${!activeDynamicScenario && idx === activeScenarioIndex ? ' active' : ''}`;
     btn.innerHTML = `
       <div class="scenario-item-top">
         <div class="scenario-top-left">
@@ -726,7 +806,7 @@ function setPositionFilter(pos, autoSelectFirst = true) {
   });
   buildScenarioSidebar();
 
-  if (autoSelectFirst && pos !== 'ALL') {
+  if (autoSelectFirst && pos !== 'ALL' && !activeDynamicScenario) {
     const curSc = SCENARIOS[activeScenarioIndex];
     if ((curSc.positionGroup || 'MF') !== pos) {
       const firstIdx = SCENARIOS.findIndex((s) => (s.positionGroup || 'MF') === pos);
@@ -749,7 +829,7 @@ document.querySelectorAll('.pos-tab-btn').forEach((btn) => {
   });
 });
 
-// 7. Load Selected Scenario into Babylon.js Scene + Sync Video Deck & Assembly Chain
+// 7. Load Selected Scenario (or Dynamic Full-Match Slice) into Babylon.js Scene
 function clearScenarioObjects() {
   for (const a of activeActors) {
     a.model.dispose();
@@ -780,18 +860,9 @@ function updateHeroHeaderAndLegend(sc) {
   }
 }
 
-function loadScenario(index, opts = {}) {
-  activeScenarioIndex = index;
-  if (!opts.preserveSubClip) {
-    activeSubClipIndex = 0;
-  }
+function applyScenarioToStage(sc, opts = {}) {
   currentSec = 0.0;
   snapCameraNextFrame = true;
-  const sc = SCENARIOS[index];
-
-  document.querySelectorAll('.scenario-item').forEach((el) => {
-    el.classList.toggle('active', Number(el.dataset.scenarioIdx) === index);
-  });
 
   updateHeroHeaderAndLegend(sc);
 
@@ -847,6 +918,56 @@ function loadScenario(index, opts = {}) {
   }
 }
 
+function loadScenario(index, opts = {}) {
+  activeDynamicScenario = null;
+  activeDynamicVideoRange = null;
+  if (dynamicSliceReturnBarEl) {
+    dynamicSliceReturnBarEl.style.display = 'none';
+  }
+
+  activeScenarioIndex = index;
+  if (!opts.preserveSubClip) {
+    activeSubClipIndex = 0;
+  }
+  const sc = SCENARIOS[index];
+
+  document.querySelectorAll('.scenario-item').forEach((el) => {
+    el.classList.toggle('active', Number(el.dataset.scenarioIdx) === index);
+  });
+
+  applyScenarioToStage(sc, opts);
+}
+
+function loadDynamicFullMatchSlice(slice, matchMeta) {
+  if (activeMocapMode !== 'tactical') {
+    activeMocapMode = 'tactical';
+    mocapModeSelectEl.value = 'tactical';
+    if (btnRootMotionTopEl) btnRootMotionTopEl.style.display = 'none';
+    clearShowcaseObjects();
+    mocapShowcaseGroup.setEnabled(false);
+    scenarioGroup.setEnabled(true);
+  }
+
+  const dynSc = buildDynamic3DScenarioFromSlice(slice, matchMeta, PRESSING_TAXONOMY);
+  activeDynamicScenario = dynSc;
+
+  if (dynamicSliceReturnBarEl) {
+    dynamicSliceReturnBarEl.style.display = 'flex';
+  }
+  if (dynamicSliceReturnMetaEl) {
+    dynamicSliceReturnMetaEl.textContent =
+      `整场切片 #${slice.index} (${slice.clock}) · ${matchMeta.homeTeamZh} vs ${matchMeta.awayTeamZh}`;
+  }
+  document.querySelectorAll('.scenario-item').forEach((el) => el.classList.remove('active'));
+
+  setWorkspaceMode('3d');
+  setCameraMode('broadcast', false);
+  isPlaying = true;
+  updatePlayButtonLabel();
+  applyScenarioToStage(dynSc);
+  return dynSc;
+}
+
 // 8. Camera Mode Controller
 function setCameraMode(mode, resetView = true) {
   cameraMode = mode;
@@ -858,7 +979,7 @@ function setCameraMode(mode, resetView = true) {
   if (mode === 'free') {
     if (resetView) {
       const [fx, fy, fz] =
-        activeMocapMode === 'tactical' ? SCENARIOS[activeScenarioIndex].defaultFocus : [0, 0, 8.0];
+        activeMocapMode === 'tactical' ? getCurrentScenario().defaultFocus : [0, 0, 8.0];
       freeCamera.setTarget(new BABYLON.Vector3(fx, fy + 0.92, fz));
       freeCamera.setPosition(new BABYLON.Vector3(fx + 3.2, fy + 1.65, fz + 3.6));
     } else {
@@ -890,11 +1011,16 @@ function getActiveDurationSec() {
     }
     return Math.max(0.25, rawDur);
   }
-  return SCENARIOS[activeScenarioIndex].durationSec;
+  return getCurrentScenario().durationSec;
 }
 
 function syncVideoPlayState() {
-  if ((activeVideoSource === 'zhibo8' || activeVideoSource === 'reel') && syncVideoTo3D && zhibo8ClipEl.src) {
+  if (workspaceMode !== '3d') {
+    zhibo8ClipEl.pause();
+    localVideoEl.pause();
+    return;
+  }
+  if ((activeVideoSource === 'zhibo8' || activeVideoSource === 'reel' || activeDynamicScenario) && syncVideoTo3D && zhibo8ClipEl.src) {
     zhibo8ClipEl.playbackRate = playbackSpeed;
     if (isPlaying) {
       zhibo8ClipEl.play().catch(() => {});
@@ -927,7 +1053,17 @@ function seekToSecond(targetSec, pausePlayback = true) {
   }
 
   if (activeMocapMode === 'tactical' && syncVideoTo3D) {
-    if (activeVideoSource === 'zhibo8' && zhibo8ClipEl.readyState >= 1) {
+    if (activeDynamicScenario && zhibo8ClipEl.readyState >= 1) {
+      if (activeDynamicVideoRange) {
+        zhibo8ClipEl.currentTime = clamp(
+          activeDynamicVideoRange.start + currentSec,
+          0,
+          Math.max(0, zhibo8ClipEl.duration - 0.02)
+        );
+      } else if (zhibo8ClipEl.duration > 0.1) {
+        zhibo8ClipEl.currentTime = clamp((currentSec / dur) * zhibo8ClipEl.duration, 0, zhibo8ClipEl.duration - 0.02);
+      }
+    } else if (activeVideoSource === 'zhibo8' && zhibo8ClipEl.readyState >= 1) {
       if (activeSubClipIndex === 0) {
         zhibo8ClipEl.currentTime = clamp(currentSec, 0, Math.max(0, zhibo8ClipEl.duration - 0.01));
       } else if (zhibo8ClipEl.duration > 0.1) {
@@ -967,7 +1103,7 @@ document.querySelectorAll('.speed-btn').forEach((btn) => {
   btn.addEventListener('click', () => {
     playbackSpeed = parseFloat(btn.dataset.speed);
     document.querySelectorAll('.speed-btn').forEach((b) => b.classList.toggle('active', b === btn));
-    if ((activeVideoSource === 'zhibo8' || activeVideoSource === 'reel') && syncVideoTo3D && zhibo8ClipEl.src) {
+    if ((activeVideoSource === 'zhibo8' || activeVideoSource === 'reel' || activeDynamicScenario) && syncVideoTo3D && zhibo8ClipEl.src) {
       zhibo8ClipEl.playbackRate = playbackSpeed;
     }
     if (localVideoEl.src) {
@@ -1002,7 +1138,12 @@ bindToggleChip('toggle-traj', 'showTrajectories');
 bindToggleChip('toggle-labels', 'showLabels');
 
 window.addEventListener('keydown', (e) => {
-  if (e.target && (e.target.tagName === 'INPUT' || e.target.tagName === 'SELECT')) return;
+  if (e.target && (e.target.tagName === 'INPUT' || e.target.tagName === 'SELECT' || e.target.tagName === 'TEXTAREA')) return;
+  if (e.key.toLowerCase() === 'm') {
+    setWorkspaceMode(workspaceMode === 'fullmatch' ? '3d' : 'fullmatch');
+    return;
+  }
+  if (workspaceMode !== '3d') return;
   if (e.code === 'Space') {
     e.preventDefault();
     isPlaying = !isPlaying;
@@ -1137,12 +1278,22 @@ function evaluateFrame(dt) {
     return;
   }
 
-  // Mode B: 18 Canonical Zhibo8 Scenarios — Multi-Clip C2-Inertialized Assembled Sequences Locked 1:1 to Video
-  let sc = SCENARIOS[activeScenarioIndex];
+  // Mode B: 18 Canonical Zhibo8 Scenarios OR Dynamic Full-Match Slice — Multi-Clip C2-Inertialized Assembled Sequences
+  let sc = getCurrentScenario();
   let dur = sc.durationSec;
 
   const videoReady = zhibo8ClipEl.style.display !== 'none' && zhibo8ClipEl.readyState >= 2;
-  if (syncVideoTo3D && videoReady && (activeVideoSource === 'zhibo8' || activeVideoSource === 'reel')) {
+  if (activeDynamicScenario) {
+    if (syncVideoTo3D && videoReady && isPlaying && !zhibo8ClipEl.paused) {
+      if (activeDynamicVideoRange) {
+        currentSec = clamp(zhibo8ClipEl.currentTime - activeDynamicVideoRange.start, 0, dur);
+      } else if (zhibo8ClipEl.duration > 0.1) {
+        currentSec = clamp((zhibo8ClipEl.currentTime / zhibo8ClipEl.duration) * dur, 0, dur);
+      }
+    } else if (isPlaying && dt > 0) {
+      currentSec = (currentSec + dt * playbackSpeed) % dur;
+    }
+  } else if (syncVideoTo3D && videoReady && (activeVideoSource === 'zhibo8' || activeVideoSource === 'reel')) {
     if (activeVideoSource === 'reel') {
       if (isPlaying && !zhibo8ClipEl.paused) {
         syncScenarioFromMasterReelTime(zhibo8ClipEl.currentTime);
@@ -1216,10 +1367,11 @@ function evaluateFrame(dt) {
   if (pedriModel) {
     updateRigTelemetryUI(pedriModel);
     if (hudMocapBadgeEl) {
-      const syncTag =
-        syncVideoTo3D && videoReady && activeSubClipIndex === 0
-          ? `视频 1:1 锁定 (${currentSec.toFixed(2)}s)`
-          : `时间轴 (${currentSec.toFixed(2)}s)`;
+      const syncTag = activeDynamicScenario
+        ? `整场切片重演 (${currentSec.toFixed(2)}s)`
+        : syncVideoTo3D && videoReady && activeSubClipIndex === 0
+        ? `视频 1:1 锁定 (${currentSec.toFixed(2)}s)`
+        : `时间轴 (${currentSec.toFixed(2)}s)`;
       hudMocapBadgeEl.textContent = `${pedriModel.activeMocapDebug} · ${syncTag}`;
     }
   }
@@ -1246,9 +1398,18 @@ function evaluateFrame(dt) {
 
   if (cameraMode === 'broadcast') {
     const c = evalState.cam;
-    desiredCamPos.set(c.pos[0], c.pos[1], c.pos[2]);
-    desiredCamTarget.set(c.target[0], c.target[1], c.target[2]);
-    applyCameraSmoothing(c.fov || 35);
+    if (sc._fullMatchSlice && pedriState) {
+      const sideSign = pedriState.x > 12 ? -1 : 1;
+      const tx = lerp(c.target[0], pedriState.x, 0.78);
+      const tz = lerp(c.target[2], pedriState.z, 0.78);
+      desiredCamTarget.set(tx, 0.92, tz);
+      desiredCamPos.set(tx + sideSign * 9.6, 3.15, tz + 2.75);
+      applyCameraSmoothing(26);
+    } else {
+      desiredCamPos.set(c.pos[0], c.pos[1], c.pos[2]);
+      desiredCamTarget.set(c.target[0], c.target[1], c.target[2]);
+      applyCameraSmoothing(c.fov || 35);
+    }
   } else if (cameraMode === 'pedri' && pedriState) {
     const behindX = pedriState.x - Math.sin(pedriState.yaw) * 4.4;
     const behindZ = pedriState.z - Math.cos(pedriState.yaw) * 4.4;
@@ -1346,7 +1507,134 @@ function extractActorBiomechanics(playerModel, ballVec) {
   };
 }
 
-// 11. Boot Studio & Expose Deterministic Visual & Continuity QA API
+function auditScenarioObjectContinuity(sc, stepSec = 0.04) {
+  const heroIdx = activeActors.findIndex((a) => isHeroRole(a.def.role));
+  const heroObj = heroIdx >= 0 ? activeActors[heroIdx] : activeActors[0];
+  if (!heroObj) return null;
+
+  const rigCtx = getHeroRigContext();
+  const dur = sc.durationSec;
+  const steps = Math.max(2, Math.floor(dur / stepSec));
+
+  let prevBio = null;
+  let maxRootStepMeters = 0;
+  let maxPelvisStepMeters = 0;
+  let maxFootStepMeters = 0;
+  let minHipsY = 99;
+  let maxHipsY = -99;
+  let minSpineUpDot = 1.0;
+
+  const dist3 = (a, b) => Math.hypot(a[0] - b[0], a[1] - b[1], a[2] - b[2]);
+  let compiledSeq = null;
+
+  for (let i = 0; i <= steps; i++) {
+    const t = Math.min(dur, Number((i * stepSec).toFixed(4)));
+    const evalSt = evaluateScenarioAtTime(sc, t, rigCtx);
+    const st = evalSt.actorStates[heroIdx >= 0 ? heroIdx : 0];
+    if (st.compiledSequence) compiledSeq = st.compiledSequence;
+    updateBabylonPlayerPose(heroObj.model, st, overlaysConfig);
+    const bio = extractActorBiomechanics(heroObj.model, matchBall.position);
+    if (!bio) continue;
+
+    minHipsY = Math.min(minHipsY, bio.hipsPos[1]);
+    maxHipsY = Math.max(maxHipsY, bio.hipsPos[1]);
+    minSpineUpDot = Math.min(minSpineUpDot, bio.spineUpDot);
+
+    if (prevBio) {
+      const rootStep = dist3(bio.rootPos, prevBio.rootPos);
+      const pelvisStep = dist3(bio.hipsPos, prevBio.hipsPos);
+      const lFootStep = dist3(bio.lFootPos, prevBio.lFootPos);
+      const rFootStep = dist3(bio.rFootPos, prevBio.rFootPos);
+      maxRootStepMeters = Math.max(maxRootStepMeters, rootStep);
+      maxPelvisStepMeters = Math.max(maxPelvisStepMeters, pelvisStep);
+      maxFootStepMeters = Math.max(maxFootStepMeters, lFootStep, rFootStep);
+    }
+    prevBio = bio;
+  }
+
+  const seamRecords = [];
+  if (compiledSeq && compiledSeq.segments) {
+    for (let sIdx = 1; sIdx < compiledSeq.segments.length; sIdx++) {
+      const seg = compiledSeq.segments[sIdx];
+      const tA = Math.max(0, seg.tStart - 0.015);
+      const tB = Math.min(dur, seg.tStart + 0.015);
+
+      const stA = evaluateScenarioAtTime(sc, tA, rigCtx).actorStates[heroIdx >= 0 ? heroIdx : 0];
+      updateBabylonPlayerPose(heroObj.model, stA, overlaysConfig);
+      const bioA = extractActorBiomechanics(heroObj.model, matchBall.position);
+
+      const stB = evaluateScenarioAtTime(sc, tB, rigCtx).actorStates[heroIdx >= 0 ? heroIdx : 0];
+      updateBabylonPlayerPose(heroObj.model, stB, overlaysConfig);
+      const bioB = extractActorBiomechanics(heroObj.model, matchBall.position);
+
+      seamRecords.push({
+        seamIdx: sIdx,
+        tSeam: Number(seg.tStart.toFixed(3)),
+        fromClip: compiledSeq.segments[sIdx - 1].clipId,
+        toClip: seg.clipId,
+        pelvisStep30ms: Number(dist3(bioA.hipsPos, bioB.hipsPos).toFixed(4)),
+        headStep30ms: Number(dist3(bioA.headPos, bioB.headPos).toFixed(4)),
+        lFootStep30ms: Number(dist3(bioA.lFootPos, bioB.lFootPos).toFixed(4)),
+        rFootStep30ms: Number(dist3(bioA.rFootPos, bioB.rFootPos).toFixed(4))
+      });
+    }
+  }
+
+  return {
+    scenario: sc.id,
+    segmentCount: compiledSeq ? compiledSeq.segments.length : 0,
+    stepSec,
+    maxRootStepMeters: Number(maxRootStepMeters.toFixed(4)),
+    maxPelvisStepMeters: Number(maxPelvisStepMeters.toFixed(4)),
+    maxFootStepMeters: Number(maxFootStepMeters.toFixed(4)),
+    minHipsY: Number(minHipsY.toFixed(4)),
+    maxHipsY: Number(maxHipsY.toFixed(4)),
+    minSpineUpDot: Number(minSpineUpDot.toFixed(4)),
+    seamRecords
+  };
+}
+
+// 11. Initialize Full-Match Breakdown Workspace & Topbar Mode Switcher
+const fullMatchCtrl = initFullMatchWorkspace({
+  containerEl: fullMatchWorkspaceEl,
+  topActionsEl: fullMatchTopActionsEl,
+  onInspectSliceIn3D: (slice, matchMeta) => {
+    loadDynamicFullMatchSlice(slice, matchMeta);
+  }
+});
+
+function setWorkspaceMode(mode) {
+  const nextMode = mode === 'fullmatch' ? 'fullmatch' : '3d';
+  workspaceMode = nextMode;
+
+  studioShellEl.classList.toggle('mode-fullmatch', nextMode === 'fullmatch');
+  if (btnWorkspace3DEl) btnWorkspace3DEl.classList.toggle('active', nextMode === '3d');
+  if (btnWorkspaceFullMatchEl) btnWorkspaceFullMatchEl.classList.toggle('active', nextMode === 'fullmatch');
+
+  if (nextMode === 'fullmatch') {
+    zhibo8ClipEl.pause();
+    localVideoEl.pause();
+    fullMatchCtrl.onShow();
+  } else {
+    fullMatchCtrl.onHide();
+    snapCameraNextFrame = true;
+    engine.resize();
+    syncVideoPlayState();
+  }
+  return workspaceMode;
+}
+
+if (btnWorkspace3DEl) {
+  btnWorkspace3DEl.addEventListener('click', () => setWorkspaceMode('3d'));
+}
+if (btnWorkspaceFullMatchEl) {
+  btnWorkspaceFullMatchEl.addEventListener('click', () => setWorkspaceMode('fullmatch'));
+}
+if (btnReturnFullMatchEl) {
+  btnReturnFullMatchEl.addEventListener('click', () => setWorkspaceMode('fullmatch'));
+}
+
+// 12. Boot Studio & Expose Deterministic Visual & Continuity QA API
 buildScenarioSidebar();
 loadScenario(0);
 updatePlayButtonLabel();
@@ -1356,6 +1644,7 @@ engine.runRenderLoop(() => {
   const nowMs = performance.now();
   const dt = Math.min((nowMs - lastFrameMs) / 1000, 0.05);
   lastFrameMs = nowMs;
+  if (workspaceMode === 'fullmatch') return;
   evaluateFrame(dt);
   scene.render();
 });
@@ -1366,6 +1655,12 @@ window.__STUDIO_DEBUG__ = {
   getScenarioCount: () => SCENARIOS.length,
   getAtomicCatalog: () => SOCCER_ATOMIC_CATALOG,
   pauseRenderLoop: () => engine.stopRenderLoop(),
+  setWorkspaceMode: (mode) => setWorkspaceMode(mode),
+  getWorkspaceMode: () => workspaceMode,
+  getFullMatchSummary: () => fullMatchCtrl.getSummary(),
+  selectFullMatch: (matchId) => fullMatchCtrl.selectMatch(matchId),
+  filterFullMatch: (filters) => fullMatchCtrl.setFilters(filters),
+  setFullMatchGroupBy: (grp) => fullMatchCtrl.setGroupBy(grp),
   setSplitLayout: (split) => applySplitLayout(split),
   setWhiteBoxMode: (enabled) => setStudioWhiteBoxMode(enabled),
   setPositionFilter: (pos, autoSelectFirst = false) => setPositionFilter(pos, autoSelectFirst),
@@ -1374,12 +1669,60 @@ window.__STUDIO_DEBUG__ = {
     Object.assign(overlaysConfig, cfg);
     setSkeletonXray(overlaysConfig.showSkeleton);
   },
+  async inspectFullMatchSliceIn3D(matchId, sliceIdx = 0, sec = 1.6, camMode = 'broadcast') {
+    await rigReadyPromise;
+    fullMatchCtrl.selectMatch(matchId);
+    const match = fullMatchCtrl.getMatchById(matchId);
+    if (!match || !match.slices[sliceIdx]) {
+      throw new Error(`Slice not found: ${matchId}[${sliceIdx}]`);
+    }
+    const slice = match.slices[sliceIdx];
+    const dynSc = loadDynamicFullMatchSlice(slice, match);
+
+    if (splitLayout && zhibo8ClipEl.src) {
+      await new Promise((resolve) => {
+        if (zhibo8ClipEl.readyState >= 2) return resolve();
+        zhibo8ClipEl.addEventListener('loadeddata', resolve, { once: true });
+        setTimeout(resolve, 1800);
+      });
+    }
+
+    const continuity = auditScenarioObjectContinuity(dynSc, 0.04);
+    seekToSecond(sec, true);
+    setCameraMode(camMode, false);
+    snapCameraNextFrame = true;
+
+    evaluateFrame(0);
+    await scene.whenReadyAsync(true);
+    scene.render();
+    scene.render();
+
+    const heroObj = activeActors.find((a) => isHeroRole(a.def.role));
+    const biomechanics = heroObj ? extractActorBiomechanics(heroObj.model, matchBall.position) : null;
+
+    return {
+      sliceId: slice.id,
+      escapeOutcome: slice.escapeOutcome,
+      pressType: slice.pressType,
+      pitchZone: slice.pitchZone,
+      dynScenarioId: dynSc.id,
+      actorCount: activeActors.length,
+      currentSec,
+      whiteBoxMode: overlaysConfig.whiteBoxMode,
+      pedriTelemetry: heroObj ? heroObj.model.telemetry : null,
+      biomechanics,
+      continuity
+    };
+  },
   async inspectScenario(scenarioIdx, sec, camMode = 'broadcast', customCam = null, showXray = false) {
     await rigReadyPromise;
+    if (workspaceMode !== '3d') {
+      setWorkspaceMode('3d');
+    }
     if (activeMocapMode !== 'tactical') {
       setMocapMode('tactical');
     }
-    if (activeScenarioIndex !== scenarioIdx) {
+    if (activeDynamicScenario || activeScenarioIndex !== scenarioIdx) {
       loadScenario(scenarioIdx);
     }
     setSkeletonXray(showXray);
@@ -1441,13 +1784,15 @@ window.__STUDIO_DEBUG__ = {
     showLabels = false
   ) {
     await rigReadyPromise;
+    if (workspaceMode !== '3d') {
+      setWorkspaceMode('3d');
+    }
     showcaseRootMotion = Boolean(useRootMotion);
     setMocapMode(`atomic:${clipId}`);
     setSkeletonXray(showXray);
     overlaysConfig.showLabels = showLabels;
     seekToSecond(sec, true);
 
-    // Evaluate pose once first so root position is updated before custom/tracked camera framing
     evaluateFrame(0);
 
     if (customCam) {
@@ -1490,94 +1835,9 @@ window.__STUDIO_DEBUG__ = {
   },
   async auditSequenceContinuity(scenarioIdx, stepSec = 0.04) {
     await rigReadyPromise;
+    if (workspaceMode !== '3d') setWorkspaceMode('3d');
     if (activeMocapMode !== 'tactical') setMocapMode('tactical');
-    if (activeScenarioIndex !== scenarioIdx) loadScenario(scenarioIdx);
-
-    const sc = SCENARIOS[scenarioIdx];
-    const heroIdx = activeActors.findIndex((a) => isHeroRole(a.def.role));
-    const heroObj = heroIdx >= 0 ? activeActors[heroIdx] : activeActors[0];
-    if (!heroObj) return null;
-
-    const rigCtx = getHeroRigContext();
-    const dur = sc.durationSec;
-    const steps = Math.max(2, Math.floor(dur / stepSec));
-
-    let prevBio = null;
-    let maxRootStepMeters = 0;
-    let maxPelvisStepMeters = 0;
-    let maxFootStepMeters = 0;
-    let minHipsY = 99;
-    let maxHipsY = -99;
-    let minSpineUpDot = 1.0;
-
-    const dist3 = (a, b) => Math.hypot(a[0] - b[0], a[1] - b[1], a[2] - b[2]);
-    let compiledSeq = null;
-
-    for (let i = 0; i <= steps; i++) {
-      const t = Math.min(dur, Number((i * stepSec).toFixed(4)));
-      const evalSt = evaluateScenarioAtTime(sc, t, rigCtx);
-      const st = evalSt.actorStates[heroIdx >= 0 ? heroIdx : 0];
-      if (st.compiledSequence) compiledSeq = st.compiledSequence;
-      updateBabylonPlayerPose(heroObj.model, st, overlaysConfig);
-      const bio = extractActorBiomechanics(heroObj.model, matchBall.position);
-      if (!bio) continue;
-
-      minHipsY = Math.min(minHipsY, bio.hipsPos[1]);
-      maxHipsY = Math.max(maxHipsY, bio.hipsPos[1]);
-      minSpineUpDot = Math.min(minSpineUpDot, bio.spineUpDot);
-
-      if (prevBio) {
-        const rootStep = dist3(bio.rootPos, prevBio.rootPos);
-        const pelvisStep = dist3(bio.hipsPos, prevBio.hipsPos);
-        const lFootStep = dist3(bio.lFootPos, prevBio.lFootPos);
-        const rFootStep = dist3(bio.rFootPos, prevBio.rFootPos);
-        maxRootStepMeters = Math.max(maxRootStepMeters, rootStep);
-        maxPelvisStepMeters = Math.max(maxPelvisStepMeters, pelvisStep);
-        maxFootStepMeters = Math.max(maxFootStepMeters, lFootStep, rFootStep);
-      }
-      prevBio = bio;
-    }
-
-    // Measure exact micro-step across every segment seam (tSeam - 0.015s -> tSeam + 0.015s)
-    const seamRecords = [];
-    if (compiledSeq && compiledSeq.segments) {
-      for (let sIdx = 1; sIdx < compiledSeq.segments.length; sIdx++) {
-        const seg = compiledSeq.segments[sIdx];
-        const tA = Math.max(0, seg.tStart - 0.015);
-        const tB = Math.min(dur, seg.tStart + 0.015);
-
-        const stA = evaluateScenarioAtTime(sc, tA, rigCtx).actorStates[heroIdx >= 0 ? heroIdx : 0];
-        updateBabylonPlayerPose(heroObj.model, stA, overlaysConfig);
-        const bioA = extractActorBiomechanics(heroObj.model, matchBall.position);
-
-        const stB = evaluateScenarioAtTime(sc, tB, rigCtx).actorStates[heroIdx >= 0 ? heroIdx : 0];
-        updateBabylonPlayerPose(heroObj.model, stB, overlaysConfig);
-        const bioB = extractActorBiomechanics(heroObj.model, matchBall.position);
-
-        seamRecords.push({
-          seamIdx: sIdx,
-          tSeam: Number(seg.tStart.toFixed(3)),
-          fromClip: compiledSeq.segments[sIdx - 1].clipId,
-          toClip: seg.clipId,
-          pelvisStep30ms: Number(dist3(bioA.hipsPos, bioB.hipsPos).toFixed(4)),
-          headStep30ms: Number(dist3(bioA.headPos, bioB.headPos).toFixed(4)),
-          lFootStep30ms: Number(dist3(bioA.lFootPos, bioB.lFootPos).toFixed(4)),
-          rFootStep30ms: Number(dist3(bioA.rFootPos, bioB.rFootPos).toFixed(4))
-        });
-      }
-    }
-
-    return {
-      scenario: sc.id,
-      segmentCount: compiledSeq ? compiledSeq.segments.length : 0,
-      stepSec,
-      maxRootStepMeters: Number(maxRootStepMeters.toFixed(4)),
-      maxPelvisStepMeters: Number(maxPelvisStepMeters.toFixed(4)),
-      maxFootStepMeters: Number(maxFootStepMeters.toFixed(4)),
-      minHipsY: Number(minHipsY.toFixed(4)),
-      maxHipsY: Number(maxHipsY.toFixed(4)),
-      minSpineUpDot: Number(minSpineUpDot.toFixed(4)),
-      seamRecords
-    };
+    if (activeDynamicScenario || activeScenarioIndex !== scenarioIdx) loadScenario(scenarioIdx);
+    return auditScenarioObjectContinuity(SCENARIOS[scenarioIdx], stepSec);
   }
 };
