@@ -670,8 +670,62 @@ async function main() {
       `  [Full-Match OK] Match 1 (${fmSummary0.activeMatchId}): ${fmSummary0.totalSlices} slices | timelineCanvas=${fmOverflow.timelineW}px pitchCanvas=${fmOverflow.pitchW}px`
     );
 
-    // Switch to Euro 2024 ESP vs GER (122 mins, 60 slices) & test 4D taxonomy filter + group-by
+    // Switch to 360° Cover-Shadow & Passing Lanes Board on El Clásico Slice #2
+    await cdp.eval(`(() => {
+      window.__STUDIO_DEBUG__.setFullMatchStageMode('pitch_360');
+      window.__STUDIO_DEBUG__.stepFullMatchSlice(1);
+    })()`);
+    await new Promise((r) => setTimeout(r, 320));
+    const fullMatch360Png = path.join(OUT_DIR, 'qa_fullmatch_360_shadows.png');
+    await cdp.screenshotPng(fullMatch360Png);
+    console.log(`  [Full-Match 360° Board OK] Captured Cover-Shadow & Passing-Lane Tactical Freeze-Frame`);
+
+    // Switch to Full-Match Diagnosis & Interactive Cross-Matrix View on El Clásico
+    await cdp.eval(`window.__STUDIO_DEBUG__.setFullMatchStageMode('diagnosis')`);
+    await new Promise((r) => setTimeout(r, 320));
+    const fmAnalytics = await cdp.eval(`window.__STUDIO_DEBUG__.getFullMatchAnalytics()`);
+    if (
+      !fmAnalytics ||
+      !fmAnalytics.teamDuel?.hasTwoTeams ||
+      fmAnalytics.crossMatrix.rows.length !== 4 ||
+      fmAnalytics.leaderboard.length < 5 ||
+      fmAnalytics.insights.length < 3
+    ) {
+      invariantFailures.push(`Full-Match Diagnosis analytics defect: ${JSON.stringify(fmAnalytics)}`);
+    }
+    const fullMatchDiagPng = path.join(OUT_DIR, 'qa_fullmatch_diagnosis_matrix.png');
+    await cdp.screenshotPng(fullMatchDiagPng);
+    console.log(
+      `  [Full-Match Diagnosis OK] Duel: ${fmAnalytics.teamDuel.home.name}(${fmAnalytics.teamDuel.home.escapeRate}%) vs ${fmAnalytics.teamDuel.away.name}(${fmAnalytics.teamDuel.away.escapeRate}%) | Leaderboard=${fmAnalytics.leaderboard.length} players`
+    );
+
+    // Verify Team Perspective Filter + Manual Slice Create/Trim/Delete + Playlist Toggle
+    const teamFilterRes = await cdp.eval(`window.__STUDIO_DEBUG__.filterFullMatch({ team: '巴塞罗那' })`);
+    if (teamFilterRes.filteredSlices <= 0 || teamFilterRes.filteredSlices >= teamFilterRes.totalSlices) {
+      invariantFailures.push(`Team filter unexpected count: ${JSON.stringify(teamFilterRes)}`);
+    }
+    const crudCheck = await cdp.eval(`(() => {
+      window.__STUDIO_DEBUG__.filterFullMatch({});
+      const before = window.__STUDIO_DEBUG__.getFullMatchSummary().totalSlices;
+      const created = window.__STUDIO_DEBUG__.createManualFullMatchSlice();
+      const afterCreate = window.__STUDIO_DEBUG__.getFullMatchSummary().totalSlices;
+      const trimmed = window.__STUDIO_DEBUG__.trimFullMatchSlice(-0.5, 0.5);
+      const plOn = window.__STUDIO_DEBUG__.toggleFullMatchPlaylist(true);
+      const plOff = window.__STUDIO_DEBUG__.toggleFullMatchPlaylist(false);
+      const deleted = window.__STUDIO_DEBUG__.deleteActiveFullMatchSlice();
+      const afterDelete = window.__STUDIO_DEBUG__.getFullMatchSummary().totalSlices;
+      return { before, afterCreate, trimmedDur: trimmed?.duration, plOn, plOff, deleted, afterDelete, createdId: created?.id };
+    })()`);
+    if (crudCheck.afterCreate !== crudCheck.before + 1 || !crudCheck.deleted || crudCheck.afterDelete !== crudCheck.before || !crudCheck.plOn) {
+      invariantFailures.push(`Full-Match Slice Studio CRUD/Playlist failure: ${JSON.stringify(crudCheck)}`);
+    }
+    console.log(
+      `  [Full-Match Studio CRUD OK] TeamFilter(巴塞罗那)=${teamFilterRes.filteredSlices}/${teamFilterRes.totalSlices} | Add/Trim/Delete=${crudCheck.before}->${crudCheck.afterCreate}->${crudCheck.afterDelete} | Playlist=OK`
+    );
+
+    // Switch back to pitch_heat on Euro 2024 ESP vs GER (122 mins, 60 slices) & test 4D taxonomy filter + group-by
     await cdp.eval(`window.__STUDIO_DEBUG__.selectFullMatch('euro2024_esp_ger_3942226')`);
+    await cdp.eval(`window.__STUDIO_DEBUG__.setFullMatchStageMode('pitch_heat')`);
     await cdp.eval(`window.__STUDIO_DEBUG__.setFullMatchGroupBy('escapeOutcome')`);
     const fmFilteredSummary = await cdp.eval(
       `window.__STUDIO_DEBUG__.filterFullMatch({ pressType: 'double_trap', playerRole: 'MF' })`
@@ -712,11 +766,6 @@ async function main() {
     );
 
     // Test Dynamic 3D Reconstruction Bridge on a `turnover_loss` Counter-Example Slice!
-    const turnoverSliceIdx = await cdp.eval(`(() => {
-      window.__STUDIO_DEBUG__.selectFullMatch('el_clasico_3773497');
-      const m = window.__STUDIO_DEBUG__.getFullMatchSummary();
-      return 0;
-    })()`);
     const foundTurnoverIdx = await cdp.eval(`(async () => {
       const mod = await import('./src/fullMatchSamples.js');
       const m = mod.BUILTIN_FULL_MATCHES.find(x => x.id === 'el_clasico_3773497');
@@ -742,10 +791,19 @@ async function main() {
 
     fullMatchAuditData = {
       initialSummary: fmSummary0,
+      analyticsSummary: {
+        homeDuel: fmAnalytics.teamDuel.home,
+        awayDuel: fmAnalytics.teamDuel.away,
+        leaderboardTop3: fmAnalytics.leaderboard.slice(0, 3).map((p) => ({ name: p.playerName, count: p.count, escapeRate: p.escapeRate, pressIndex: p.pressIndex })),
+        insights: fmAnalytics.insights
+      },
+      teamFilterCount: teamFilterRes.filteredSlices,
+      crudCheck,
       filteredSummary: fmFilteredSummary,
       layoutMetrics: fmOverflow,
       bridgeEscape,
-      bridgeTurnover
+      bridgeTurnover,
+      extraComposites: { fullMatch360Png, fullMatchDiagPng }
     };
   } finally {
     cdp?.close();

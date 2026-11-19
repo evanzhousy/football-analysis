@@ -413,9 +413,10 @@ function updateRealVideoDeck() {
     const meta = sc._fullMatchMeta || {};
     const isDirect = Boolean(meta.hasDirectFullVideo && meta.videoSrc);
     const src = isDirect ? meta.videoSrc : slice.refVideoSrc || './assets/videos/s1_zhibo8_half_turn.mp4';
-    activeDynamicVideoRange = isDirect
-      ? { start: Number(slice.tStart || 0), end: Math.max(Number(slice.tStart || 0) + 1.2, Number(slice.tEnd || 4)) }
-      : null;
+    const offsetSec = isDirect ? Number(meta.kickoffOffsetSec || 0) : 0;
+    const adjStart = Math.max(0, Number(slice.tStart || 0) + offsetSec);
+    const adjEnd = Math.max(adjStart + 1.2, Number(slice.tEnd || adjStart + 4) + offsetSec);
+    activeDynamicVideoRange = isDirect ? { start: adjStart, end: adjEnd } : null;
 
     zhibo8SubclipsBarEl.style.display = 'flex';
     zhibo8SubclipsBtnsEl.innerHTML = `<span style="font-size:11px;color:var(--accent-gold);font-weight:600;">🏟️ 整场切片 #${slice.index} (${slice.clock}) × 3D白模1:1空间重演</span>`;
@@ -1658,9 +1659,16 @@ window.__STUDIO_DEBUG__ = {
   setWorkspaceMode: (mode) => setWorkspaceMode(mode),
   getWorkspaceMode: () => workspaceMode,
   getFullMatchSummary: () => fullMatchCtrl.getSummary(),
+  getFullMatchAnalytics: () => fullMatchCtrl.getAnalytics(),
   selectFullMatch: (matchId) => fullMatchCtrl.selectMatch(matchId),
   filterFullMatch: (filters) => fullMatchCtrl.setFilters(filters),
   setFullMatchGroupBy: (grp) => fullMatchCtrl.setGroupBy(grp),
+  setFullMatchStageMode: (mode) => fullMatchCtrl.setStageMode(mode),
+  stepFullMatchSlice: (delta) => fullMatchCtrl.stepSlice(delta),
+  toggleFullMatchPlaylist: (val) => fullMatchCtrl.togglePlaylistMode(val),
+  trimFullMatchSlice: (d0, d1) => fullMatchCtrl.trimActiveSlice(d0, d1),
+  createManualFullMatchSlice: () => fullMatchCtrl.createManualSliceAtCurrentTime(),
+  deleteActiveFullMatchSlice: () => fullMatchCtrl.deleteActiveSlice(),
   setSplitLayout: (split) => applySplitLayout(split),
   setWhiteBoxMode: (enabled) => setStudioWhiteBoxMode(enabled),
   setPositionFilter: (pos, autoSelectFirst = false) => setPositionFilter(pos, autoSelectFirst),

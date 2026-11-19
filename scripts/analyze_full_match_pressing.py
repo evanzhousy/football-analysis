@@ -2,11 +2,12 @@
 """
 scripts/analyze_full_match_pressing.py
 
-Offline High-Precision Full-Match Pressing Video Slicer & 4D Classifier CLI.
-Scans a full 90-minute match video (MP4/MKV/WebM), filters broadcast wide-angle pitch
-frames, detects high-density on-ball pressing clusters + motion bursts, classifies each
-slice across 4 tactical dimensions, writes a Web-compatible JSON manifest, and optionally
-cuts physical MP4 sub-clips via FFmpeg.
+Offline High-Precision Full-Match Pressing Video Slicer & 4D Classifier CLI (Greenfield v2).
+Scans a full 90/120-minute match video (MP4/MKV/WebM), filters broadcast wide-angle pitch
+frames, detects high-density opposing-kit pressing clusters (HSV turf mask + Dual-Team
+Jersey Chromatic Contrast + motion flux), classifies each slice across 4 tactical dimensions,
+embeds Base64 JPEG preview thumbnails, exports Web-compatible JSON + CSV + Markdown Scouting
+Report, and optionally cuts physical MP4 sub-clips via FFmpeg.
 
 Usage:
   python3 scripts/analyze_full_match_pressing.py \
@@ -17,6 +18,8 @@ Usage:
 """
 
 import argparse
+import base64
+import csv
 import json
 import math
 import subprocess
@@ -26,15 +29,69 @@ import cv2
 import numpy as np
 
 
+PRESS_LABELS = {
+    "1v1_back": "背身1v1顶防",
+    "double_trap": "双人关门夹击",
+    "cage_3plus": "3人+合围反抢",
+    "high_press": "后场高位逼抢",
+}
+ZONE_LABELS = {
+    "buildup_back": "后场出球区",
+    "midfield_hub": "中圈腹地枢纽",
+    "touchline_trap": "边路死角陷阱",
+    "zone14_halfspace": "前场肋部与14区",
+}
+OUTCOME_LABELS = {
+    "half_turn": "沉肩半转身摆脱",
+    "skill_dribble": "油炸丸子·回旋过人",
+    "one_touch_wall": "一脚撞墙·直塞破抢",
+    "recycle_shield": "护球卡位·安全重置",
+    "turnover_loss": "被抢断丢球 (反例)",
+}
+
+
+def compute_kit_contrast(hsv_roi: np.ndarray, fg_roi: np.ndarray) -> float:
+    """
+    Measures opposing-kit chromatic balance inside a pressing cluster ROI.
+    Peaks when 2+ distinct jersey color buckets (e.g., white vs blue/red) collide,
+    reducing false positives from same-team huddles or pitch signage.
+    """
+    ys, xs = np.where(fg_roi > 0)
+    n = len(ys)
+    if n < 12:
+        return 0.0
+    h = hsv_roi[ys, xs, 0].astype(np.int32) * 2  # 0..360 deg
+    s = hsv_roi[ys, xs, 1].astype(np.float32) / 255.0
+    v = hsv_roi[ys, xs, 2].astype(np.float32) / 255.0
+
+    bins = np.zeros(6, dtype=np.float32)
+    low_sat = s < 0.22
+    bins[0] = float(np.sum(low_sat & (v >= 0.60)))  # white/bright
+    bins[1] = float(np.sum(low_sat & (v < 0.60)))   # dark/black
+    high_sat = ~low_sat
+    bins[2] = float(np.sum(high_sat & ((h < 28) | (h >= 330))))  # red/orange
+    bins[3] = float(np.sum(high_sat & (h >= 28) & (h < 68)))     # yellow
+    bins[4] = float(np.sum(high_sat & (h >= 175) & (h < 265)))   # blue/cyan
+    bins[5] = float(n) - float(np.sum(bins[:5]))
+
+    sorted_bins = np.sort(bins)[::-1]
+    top1 = float(sorted_bins[0])
+    top2 = float(sorted_bins[1])
+    if top1 <= 0:
+        return 0.0
+    balance = top2 / top1
+    spread = 1.0 - (top1 / float(n))
+    return float(min(1.0, max(0.0, balance * spread * 2.2)))
+
+
 def analyze_frame_features(bgr_small: np.ndarray, prev_gray: np.ndarray | None):
     """
-    Computes broadcast turf ratio, 6x4 spatial player-congestion peak, white-line
-    zone hints, and optical motion energy on a 320x180 BGR frame.
+    Computes broadcast turf ratio, connected athlete blob cluster density,
+    Dual-Team Jersey Chromatic Contrast, and motion flux on a 320x180 BGR frame.
     """
     hsv = cv2.cvtColor(bgr_small, cv2.COLOR_BGR2HSV)
     gray = cv2.cvtColor(bgr_small, cv2.COLOR_BGR2GRAY)
 
-    # 1. Green turf mask (broadcast wide shot detection)
     turf_mask = cv2.inRange(hsv, np.array([28, 30, 30]), np.array([90, 255, 255]))
     turf_ratio = float(np.count_nonzero(turf_mask)) / float(turf_mask.size)
 
@@ -44,32 +101,27 @@ def analyze_frame_features(bgr_small: np.ndarray, prev_gray: np.ndarray | None):
             "turf_ratio": turf_ratio,
             "press_score": 0.0,
             "motion": 0.0,
+            "kit_contrast": 0.0,
             "cx": 0.5,
             "cy": 0.5,
             "cluster_players": 0,
             "gray": gray,
         }
 
-    # 2. Foreground player/ball contrast inside pitch region (non-turf inside dilated turf hull)
     kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (15, 15))
     pitch_hull = cv2.morphologyEx(turf_mask, cv2.MORPH_CLOSE, kernel)
     fg_mask = cv2.bitwise_and(cv2.bitwise_not(turf_mask), pitch_hull)
-
-    # Suppress long white pitch lines via thin morphological opening check
     fg_clean = cv2.morphologyEx(fg_mask, cv2.MORPH_OPEN, np.ones((3, 3), np.uint8))
 
-    # Count connected athlete blobs of plausible size on 320x180 frame
     num_labels, _, stats, centroids = cv2.connectedComponentsWithStats(fg_clean, connectivity=8)
     pts = []
     for lbl in range(1, num_labels):
         area = stats[lbl, cv2.CC_STAT_AREA]
         w = stats[lbl, cv2.CC_STAT_WIDTH]
         h = stats[lbl, cv2.CC_STAT_HEIGHT]
-        # Athlete blob vs long line
         if 8 <= area <= 420 and h >= w * 0.45 and w <= 42:
             pts.append((centroids[lbl][0] / 320.0, centroids[lbl][1] / 180.0))
 
-    # Find densest local pressing cluster within radius r=0.16 of normalized frame
     best_cnt = 0
     best_compact = 0.0
     best_cx, best_cy = 0.5, 0.5
@@ -83,25 +135,27 @@ def analyze_frame_features(bgr_small: np.ndarray, prev_gray: np.ndarray | None):
             best_compact = compact
             best_cx, best_cy = px, py
 
-    # 3. Motion flux around active cluster
+    x0 = max(0, int((best_cx - 0.18) * 320))
+    x1 = min(320, int((best_cx + 0.18) * 320))
+    y0 = max(0, int((best_cy - 0.20) * 180))
+    y1 = min(180, int((best_cy + 0.20) * 180))
+
+    kit_contrast = compute_kit_contrast(hsv[y0:y1, x0:x1], fg_clean[y0:y1, x0:x1]) if best_cnt >= 2 else 0.0
+
     motion = 0.0
     if prev_gray is not None:
         diff = cv2.absdiff(gray, prev_gray)
-        x0 = max(0, int((best_cx - 0.18) * 320))
-        x1 = min(320, int((best_cx + 0.18) * 320))
-        y0 = max(0, int((best_cy - 0.20) * 180))
-        y1 = min(180, int((best_cy + 0.20) * 180))
         patch = diff[y0:y1, x0:x1]
         motion = float(np.mean(patch)) / 255.0 if patch.size > 0 else 0.0
 
-    # Combined Pressing Intensity Score in [0, 100]
-    raw_score = min(99.0, best_cnt * 12.5 + best_compact * 85.0 + motion * 140.0)
+    raw_score = min(99.0, best_cnt * 11.0 + best_compact * 75.0 + motion * 135.0 + kit_contrast * 28.0)
 
     return {
         "is_pitch": True,
         "turf_ratio": turf_ratio,
         "press_score": raw_score,
         "motion": motion,
+        "kit_contrast": round(kit_contrast, 2),
         "cx": best_cx,
         "cy": best_cy,
         "cluster_players": best_cnt,
@@ -115,7 +169,6 @@ def classify_slice_4d(window: list[dict], vid_dur: float) -> dict:
     cx, cy = peak["cx"], peak["cy"]
     players = peak["cluster_players"]
 
-    # 1. Pitch Zone from normalized broadcast centroid
     if cy < 0.24 or cy > 0.80:
         pitch_zone = "touchline_trap"
     elif cx < 0.32:
@@ -125,7 +178,6 @@ def classify_slice_4d(window: list[dict], vid_dur: float) -> dict:
     else:
         pitch_zone = "midfield_hub"
 
-    # 2. Pressing Structure
     if pitch_zone == "buildup_back" and players >= 2:
         press_type = "high_press"
     elif players >= 5:
@@ -135,7 +187,6 @@ def classify_slice_4d(window: list[dict], vid_dur: float) -> dict:
     else:
         press_type = "1v1_back"
 
-    # 3. Escape Outcome from centroid progression & post-peak motion burst
     dx = last["cx"] - first["cx"]
     dy = last["cy"] - first["cy"]
     disp = math.hypot(dx, dy)
@@ -152,7 +203,6 @@ def classify_slice_4d(window: list[dict], vid_dur: float) -> dict:
     else:
         escape_outcome = "recycle_shield"
 
-    # 4. Player Role heuristic from pitch zone
     if pitch_zone == "buildup_back":
         role, pos_lbl = "GK_DF", "后卫 DF"
     elif pitch_zone == "zone14_halfspace" and cy > 0.35:
@@ -168,7 +218,6 @@ def classify_slice_4d(window: list[dict], vid_dur: float) -> dict:
     presser_cnt = max(1, min(4, players - 1))
     min_dist = round(max(0.75, 2.4 - presser_cnt * 0.35), 2)
 
-    # Synthesize nearby 360-style defenders for 3D reconstruction
     opps = []
     for k in range(presser_cnt):
         ang = (k / max(1, presser_cnt)) * math.pi * 1.4 - 0.6
@@ -190,11 +239,76 @@ def classify_slice_4d(window: list[dict], vid_dur: float) -> dict:
         "presserCount": presser_cnt,
         "minDefDistM": min_dist,
         "intensity": int(round(min(99, max(52, peak["press_score"])))),
+        "kitContrast": peak.get("kit_contrast", 0.0),
         "pitchXY": [x_m, y_m],
         "exitXY": [ex_m, ey_m],
         "freezeOpps": opps,
-        "freezeMates": [{"x": round(max(4.0, x_m - 7.5), 1), "y": round(min(64.0, y_m + 6.0), 1)}],
+        "freezeMates": [
+            {"x": round(max(4.0, x_m - 7.5), 1), "y": round(min(64.0, y_m + 6.0), 1)},
+            {"x": round(min(101.0, x_m + 8.5), 1), "y": round(max(4.0, y_m - 6.5), 1)},
+        ],
     }
+
+
+def encode_thumbnail_data_url(cap: cv2.VideoCapture, fps: float, t_sec: float) -> str | None:
+    cap.set(cv2.CAP_PROP_POS_FRAMES, max(0, int(round(t_sec * fps))))
+    ok, frame = cap.read()
+    if not ok or frame is None:
+        return None
+    thumb = cv2.resize(frame, (240, 135), interpolation=cv2.INTER_AREA)
+    ok_enc, buf = cv2.imencode(".jpg", thumb, [int(cv2.IMWRITE_JPEG_QUALITY), 72])
+    if not ok_enc:
+        return None
+    b64 = base64.b64encode(buf.tobytes()).decode("ascii")
+    return f"data:image/jpeg;base64,{b64}"
+
+
+def write_companion_csv_and_report(manifest: dict, out_dir: Path):
+    slices = manifest["slices"]
+    csv_path = out_dir / "match_pressing_slices.csv"
+    with csv_path.open("w", encoding="utf-8-sig", newline="") as f:
+        writer = csv.writer(f)
+        writer.writerow([
+            "index", "clock", "tStart", "tEnd", "team", "oppTeam", "playerRole",
+            "pressType", "pitchZone", "escapeOutcome", "presserCount", "minDefDistM",
+            "netProgressionM", "intensity", "kitContrast", "summary",
+        ])
+        for s in slices:
+            prog = round(s["exitXY"][0] - s["pitchXY"][0], 1)
+            writer.writerow([
+                s["index"], s["clock"], s["tStart"], s["tEnd"], s["team"], s["oppTeam"],
+                s["playerRole"], PRESS_LABELS.get(s["pressType"], s["pressType"]),
+                ZONE_LABELS.get(s["pitchZone"], s["pitchZone"]),
+                OUTCOME_LABELS.get(s["escapeOutcome"], s["escapeOutcome"]),
+                s["presserCount"], s["minDefDistM"], prog, s["intensity"],
+                s.get("kitContrast", 0.0), s["summary"],
+            ])
+
+    total = len(slices)
+    escaped = sum(1 for s in slices if s["escapeOutcome"] != "turnover_loss")
+    escape_rate = round(escaped / total * 100) if total else 0
+    report_lines = [
+        f"# 离线整场持球逼抢拆解报告 · {manifest['title']}",
+        "",
+        f"- **来源**：{manifest['sourceLabel']}",
+        f"- **检测持球逼抢切片总数**：`{total}` 处（估算破围率 `{escape_rate}%`）",
+        f"- **配套网页载入**：在网页端「整场切片归类」点击 **📥 导入** 载入 `match_pressing_breakdown.json`，并点击 **🔗 绑定录像** 选择原视频即可逐帧回放与 3D 白模重演。",
+        "",
+        "## 切片归类明细表",
+        "| # | 时刻 | 起止(s) | 逼抢形态 | 发生区域 | 摆脱结果 | 强度 | 球衣对抗度 | 摘要 |",
+        "| :---: | :---: | :---: | :--- | :--- | :--- | :---: | :---: | :--- |",
+    ]
+    for s in slices:
+        report_lines.append(
+            f"| #{s['index']:02d} | {s['clock']} | {s['tStart']}–{s['tEnd']} | "
+            f"{PRESS_LABELS.get(s['pressType'], s['pressType'])} | "
+            f"{ZONE_LABELS.get(s['pitchZone'], s['pitchZone'])} | "
+            f"{OUTCOME_LABELS.get(s['escapeOutcome'], s['escapeOutcome'])} | "
+            f"{s['intensity']}% | {int(round(s.get('kitContrast', 0.0) * 100))}% | {s['summary']} |"
+        )
+    report_path = out_dir / "match_pressing_report.md"
+    report_path.write_text("\n".join(report_lines) + "\n", encoding="utf-8")
+    return csv_path, report_path
 
 
 def scan_full_match_video(
@@ -228,7 +342,6 @@ def scan_full_match_video(
         t_sec = f_idx / fps
         small = cv2.resize(frame, (320, 180), interpolation=cv2.INTER_AREA)
 
-        # Scene cut detection via HSV histogram correlation
         hsv_small = cv2.cvtColor(small, cv2.COLOR_BGR2HSV)
         hist = cv2.calcHist([hsv_small], [0, 1], None, [24, 16], [0, 180, 0, 256])
         cv2.normalize(hist, hist)
@@ -248,9 +361,6 @@ def scan_full_match_video(
 
         f_idx += step_frames
 
-    cap.release()
-
-    # Adaptive threshold (top pressing windows, split cleanly at scene cuts)
     pitch_scores = [s["press_score"] for s in samples if s["is_pitch"]]
     thresh = float(np.percentile(pitch_scores, 62)) if pitch_scores else 45.0
     thresh = max(32.0, min(68.0, thresh))
@@ -276,24 +386,24 @@ def scan_full_match_video(
         clips_dir.mkdir(parents=True, exist_ok=True)
 
     for w in raw_windows:
+        peak = max(w, key=lambda f: f["press_score"])
         t0 = max(0.0, round(w[0]["t"] - 1.2, 2))
         t1 = min(round(duration_sec, 2), round(w[-1]["t"] + 1.8, 2))
         if t1 - t0 < 2.6:
             t1 = min(round(duration_sec, 2), round(t0 + 4.0, 2))
         if t1 - t0 < 1.8:
             continue
-        # Cap overly long continuous windows into ~8.5s chunks
         t1 = min(t1, round(t0 + 9.0, 2))
 
-        # Avoid near-duplicate overlap with previous slice
         if slices and t0 < slices[-1]["tEnd"] - 0.6:
             continue
 
         idx = len(slices) + 1
         cls = classify_slice_4d(w, duration_sec)
+        thumb_url = encode_thumbnail_data_url(cap, fps, peak["t"])
         mm = int(t0 // 60)
         ss = int(t0 % 60)
-        period = 1 if mm < 45 else 2
+        period = 1 if mm < 45 else (2 if mm < 90 else 3)
 
         clip_rel = f"./{video_path.name}"
         if export_clips:
@@ -301,22 +411,9 @@ def scan_full_match_video(
             clip_out = clips_dir / clip_name
             subprocess.run(
                 [
-                    "ffmpeg",
-                    "-y",
-                    "-ss",
-                    str(t0),
-                    "-to",
-                    str(t1),
-                    "-i",
-                    str(video_path),
-                    "-c:v",
-                    "libx264",
-                    "-preset",
-                    "veryfast",
-                    "-crf",
-                    "23",
-                    "-an",
-                    str(clip_out),
+                    "ffmpeg", "-y", "-ss", str(t0), "-to", str(t1),
+                    "-i", str(video_path), "-c:v", "libx264", "-preset", "veryfast",
+                    "-crf", "23", "-an", str(clip_out),
                 ],
                 stdout=subprocess.DEVNULL,
                 stderr=subprocess.DEVNULL,
@@ -343,36 +440,49 @@ def scan_full_match_video(
                 **cls,
                 "refScenarioIdx": 0,
                 "refVideoSrc": clip_rel,
-                "summary": f"[{mm:02d}:{ss:02d}] 视频CV自动识别：{cls['presserCount']}人逼抢聚拢（强度{cls['intensity']}%），持续 {round(t1-t0,1)}s",
+                "thumbnail": thumb_url,
+                "summary": (
+                    f"[{mm:02d}:{ss:02d}] 视频CV自动识别：{cls['presserCount']}人逼抢聚拢"
+                    f"（强度{cls['intensity']}% · 球衣对抗度{int(round(cls['kitContrast']*100))}%），持续 {round(t1-t0,1)}s"
+                ),
             }
         )
+
+    cap.release()
 
     manifest = {
         "id": f"cv_{video_path.stem}",
         "title": f"{video_path.name} · 整场持球逼抢自动切片拆解 ({len(slices)}处)",
-        "competition": "离线 Python CV 自动拆解报告",
+        "competition": "离线 Python CV v2 自动拆解报告",
         "matchDate": "Local Video",
         "homeTeamZh": home_team,
         "awayTeamZh": away_team,
         "totalMinutes": max(1, int(math.ceil(duration_sec / 60.0))),
         "videoDurationSec": round(duration_sec, 2),
         "videoSrc": None,
-        "hasDirectFullVideo": True,
-        "sourceLabel": f"Python OpenCV 自动扫描 ({sample_fps} fps 采样)",
+        "hasDirectFullVideo": False,
+        "kickoffOffsetSec": 0,
+        "sourceLabel": f"Python OpenCV v2 异色球衣对抗扫描 ({sample_fps} fps)",
         "sliceCount": len(slices),
         "slices": slices,
     }
 
     manifest_path = out_dir / "match_pressing_breakdown.json"
     manifest_path.write_text(json.dumps(manifest, ensure_ascii=False, indent=2), encoding="utf-8")
-    print(f"[OK] Scanned {video_path.name} ({duration_sec:.1f}s) -> {len(slices)} pressing slices -> {manifest_path}")
+    csv_path, report_path = write_companion_csv_and_report(manifest, out_dir)
+    print(
+        f"[OK] Scanned {video_path.name} ({duration_sec:.1f}s) -> {len(slices)} pressing slices\n"
+        f"     JSON   : {manifest_path}\n"
+        f"     CSV    : {csv_path}\n"
+        f"     Report : {report_path}"
+    )
     return manifest
 
 
 def main():
-    ap = argparse.ArgumentParser(description="Analyze full football match video and slice pressing moments.")
+    ap = argparse.ArgumentParser(description="Analyze full football match video and slice pressing moments (v2).")
     ap.add_argument("--video", required=True, help="Path to full match MP4/WebM/MKV video")
-    ap.add_argument("--out-dir", required=True, help="Output directory for JSON manifest and optional clips")
+    ap.add_argument("--out-dir", required=True, help="Output directory for JSON/CSV/Report and optional clips")
     ap.add_argument("--sample-fps", type=float, default=2.5, help="Analysis frame sampling rate (Hz)")
     ap.add_argument("--export-clips", action="store_true", help="Also cut physical MP4 sub-clips via FFmpeg")
     ap.add_argument("--home-team", default="主队", help="Home team display name")
