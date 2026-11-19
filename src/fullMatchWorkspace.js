@@ -289,8 +289,8 @@ export function initFullMatchWorkspace({
 
           <div class="fm-cli-card">
             <div class="fm-cli-head">
-              <span class="fm-cli-title">⚡ 离线 CLI & FFmpeg 剪辑包</span>
-              <button id="btn-fm-export-sh" class="fm-cli-export-btn" type="button" title="将当前筛选/标星切片导出为可执行的 FFmpeg 自动合并视频剪辑脚本 (.sh)">🎬 导出.sh剪辑脚本</button>
+              <span class="fm-cli-title">⚡ CLI & 剪辑包</span>
+              <button id="btn-fm-export-sh" class="fm-cli-export-btn" type="button" title="将当前筛选/标星切片导出为可执行的 FFmpeg 自动合并视频剪辑脚本 (.sh)">🎬 导出.sh脚本</button>
             </div>
             <code>python scripts/analyze_full_match_pressing.py --video match.mp4 --export-clips</code>
           </div>
@@ -1886,7 +1886,7 @@ export function initFullMatchWorkspace({
   // Interactive Dual-Team 90/120-Minute Timeline Canvas (Click + Drag-Brush Range)
   // ==========================================================================
   let timelineHitPoints = []; // [{ x, y, id, slice }]
-  let timelineGeom = { padL: 54, padT: 8, plotW: 600, plotH: 48, maxSec: 5400 };
+  let timelineGeom = { padL: 64, padT: 8, plotW: 600, plotH: 48, maxSec: 5400 };
   let suppressNextTimelineClick = false;
 
   function drawTimelineCanvas() {
@@ -1920,7 +1920,7 @@ export function initFullMatchWorkspace({
     );
     const useSecondsAxis = maxSec <= 180;
 
-    const padL = dualTeamSplit ? 54 : 34;
+    const padL = dualTeamSplit ? 64 : 34;
     const padR = 18;
     const padT = 8;
     const padB = 17;
@@ -1971,9 +1971,9 @@ export function initFullMatchWorkspace({
       ctx.font = '600 9.5px "Inter", "Noto Sans SC", sans-serif';
       ctx.textAlign = 'right';
       ctx.fillStyle = '#facc15';
-      ctx.fillText((homeTeamName || '主队').slice(0, 4), padL - 5, padT + plotH * 0.28 + 3);
+      ctx.fillText((homeTeamName || '主队').slice(0, 5), padL - 6, padT + plotH * 0.28 + 3);
       ctx.fillStyle = '#38bdf8';
-      ctx.fillText((awayTeamName || '客队').slice(0, 4), padL - 5, padT + plotH * 0.78 + 3);
+      ctx.fillText((awayTeamName || '客队').slice(0, 5), padL - 6, padT + plotH * 0.78 + 3);
     }
 
     const tickStep = useSecondsAxis ? 15 : 15 * 60;
@@ -2675,15 +2675,14 @@ export function initFullMatchWorkspace({
         ctx.fillText(String(curActive.jerseyNumber || '8').slice(0, 2), hx, hy + 3.4);
       }
 
-      // Floating Callout Pill in Full-Pitch modes (in 2.2x zoomed 360°, rendered cleanly in top-left HUD bar below)
-      if (!isZoomed360) {
+      // Floating Callout Pill in Heat mode (in all 360° modes, rendered cleanly in top-left HUD bar below)
+      if (stageMode !== 'pitch_360') {
         const prog = sliceNetProgressionM(curActive);
         const tagText = `[${curActive.clock}] #${curActive.jerseyNumber || '8'} ${curActive.playerName.split(' ')[0]} · 贴防${curActive.minDefDistM}m · ΔX ${prog >= 0 ? '+' : ''}${prog}m`;
         ctx.font = '600 10.5px "Inter", "Noto Sans SC", sans-serif';
         const tw = ctx.measureText(tagText).width + 12;
         const tx = clamp(hx - tw * 0.5, ox + 6, ox + pw - tw - 6);
-        const pillLift = stageMode === 'pitch_360' ? 34 : 25;
-        const ty = hy > oy + pillLift + 10 ? hy - pillLift : hy + 14;
+        const ty = hy > oy + 35 ? hy - 25 : hy + 14;
         ctx.fillStyle = 'rgba(10, 16, 28, 0.92)';
         ctx.strokeStyle = 'rgba(250, 204, 21, 0.85)';
         ctx.lineWidth = 1.1;
@@ -2702,34 +2701,32 @@ export function initFullMatchWorkspace({
     ctx.lineWidth = 1.2;
     ctx.strokeRect(ox, oy, pw, ph);
 
-    // Unclipped HUD Badges in 360° Mode (Top-left active callout + Top-right zoom scale + Bottom-left space evaluation)
+    // Unclipped HUD Badges in 360° Mode (Top-left active callout + Top-right scale + Bottom-left space evaluation)
     if (stageMode === 'pitch_360' && curActive) {
-      if (isZoomed360) {
-        const prog = sliceNetProgressionM(curActive);
-        const tagText = `[${curActive.clock}] #${curActive.jerseyNumber || '8'} ${curActive.playerName.split(' ')[0]} · 贴防${curActive.minDefDistM}m · ΔX ${prog >= 0 ? '+' : ''}${prog}m`;
-        ctx.font = '600 10.5px "Inter", "Noto Sans SC", sans-serif';
-        const tw = ctx.measureText(tagText).width + 14;
-        ctx.fillStyle = 'rgba(10, 16, 28, 0.92)';
-        ctx.strokeStyle = 'rgba(250, 204, 21, 0.85)';
-        ctx.lineWidth = 1.1;
-        ctx.fillRect(ox + 8, oy + 8, tw, 19);
-        ctx.strokeRect(ox + 8, oy + 8, tw, 19);
-        ctx.fillStyle = '#fef08a';
-        ctx.textAlign = 'left';
-        ctx.fillText(tagText, ox + 15, oy + 21);
+      const prog = sliceNetProgressionM(curActive);
+      const tagText = `[${curActive.clock}] #${curActive.jerseyNumber || '8'} ${curActive.playerName.split(' ')[0]} · 贴防${curActive.minDefDistM}m · ΔX ${prog >= 0 ? '+' : ''}${prog}m`;
+      ctx.font = '600 10.5px "Inter", "Noto Sans SC", sans-serif';
+      const tw = ctx.measureText(tagText).width + 14;
+      ctx.fillStyle = 'rgba(10, 16, 28, 0.92)';
+      ctx.strokeStyle = 'rgba(250, 204, 21, 0.85)';
+      ctx.lineWidth = 1.1;
+      ctx.fillRect(ox + 8, oy + 8, tw, 19);
+      ctx.strokeRect(ox + 8, oy + 8, tw, 19);
+      ctx.fillStyle = '#fef08a';
+      ctx.textAlign = 'left';
+      ctx.fillText(tagText, ox + 15, oy + 21);
 
-        const zHud = '🔍 2.2x 战术特写 · 5m 网格';
-        ctx.font = '600 10px "Inter", "Noto Sans SC", monospace';
-        const zw = ctx.measureText(zHud).width + 14;
-        ctx.fillStyle = 'rgba(7, 13, 24, 0.86)';
-        ctx.strokeStyle = 'rgba(56, 189, 248, 0.55)';
-        ctx.lineWidth = 1;
-        ctx.fillRect(ox + pw - zw - 8, oy + 8, zw, 19);
-        ctx.strokeRect(ox + pw - zw - 8, oy + 8, zw, 19);
-        ctx.fillStyle = '#7dd3fc';
-        ctx.textAlign = 'left';
-        ctx.fillText(zHud, ox + pw - zw - 1, oy + 21);
-      }
+      const zHud = isZoomed360 ? '🔍 2.2x 战术特写 · 5m 网格' : '🏟️ 1.0x 全场鸟瞰 · 105m';
+      ctx.font = '600 10px "Inter", "Noto Sans SC", monospace';
+      const zw = ctx.measureText(zHud).width + 14;
+      ctx.fillStyle = 'rgba(7, 13, 24, 0.86)';
+      ctx.strokeStyle = 'rgba(56, 189, 248, 0.55)';
+      ctx.lineWidth = 1;
+      ctx.fillRect(ox + pw - zw - 8, oy + 8, zw, 19);
+      ctx.strokeRect(ox + pw - zw - 8, oy + 8, zw, 19);
+      ctx.fillStyle = '#7dd3fc';
+      ctx.textAlign = 'left';
+      ctx.fillText(zHud, ox + pw - zw - 1, oy + 21);
 
       const laneHud = `360° 空间评估：${curActive.presserCount} 名逼抢人施压 · 开放出球点 ${openLaneCount} 处 · 被遮蔽通道 ${blockedLaneCount} 处`;
       ctx.font = '600 10.5px "Inter", "Noto Sans SC", sans-serif';
