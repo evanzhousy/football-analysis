@@ -701,7 +701,11 @@ export function initFullMatchWorkspace({
     const slice = getActiveSlice();
     if (!slice) return;
     const val = editJerseyEl.value.trim().replace(/^#/, '').slice(0, 3);
-    if (val && val !== String(slice.jerseyNumber || '')) {
+    const oldJ = String(slice.jerseyNumber || '');
+    if (val && val !== oldJ) {
+      if (oldJ && slice.summary && slice.summary.startsWith(`#${oldJ} `)) {
+        slice.summary = `#${val} ` + slice.summary.slice(oldJ.length + 2);
+      }
       slice.jerseyNumber = val;
       persistSlicePatch(match, slice);
       renderAll({ keepVideo: true });
@@ -713,7 +717,14 @@ export function initFullMatchWorkspace({
     const slice = getActiveSlice();
     if (!slice) return;
     const val = editPlayerEl.value.trim();
-    if (val && val !== slice.playerName) {
+    const oldName = slice.playerName || '';
+    if (val && val !== oldName) {
+      const oldShort = oldName.split(' ')[0];
+      const newShort = val.split(' ')[0];
+      const jPrefix = `#${slice.jerseyNumber || '8'} `;
+      if (slice.summary && oldShort && slice.summary.startsWith(`${jPrefix}${oldShort}`)) {
+        slice.summary = `${jPrefix}${newShort}` + slice.summary.slice((jPrefix + oldShort).length);
+      }
       slice.playerName = val;
       persistSlicePatch(match, slice);
       renderAll({ keepVideo: true });
@@ -823,15 +834,14 @@ export function initFullMatchWorkspace({
   }
 
   function getActiveSlice() {
-    const m = getActiveMatch();
     const filtered = getFilteredSlices();
+    if (filtered.length === 0) {
+      return null;
+    }
     const inFiltered = filtered.find((s) => s.id === activeSliceId);
     if (inFiltered) return inFiltered;
-    if (filtered.length > 0) {
-      activeSliceId = filtered[0].id;
-      return filtered[0];
-    }
-    return m.slices.find((s) => s.id === activeSliceId) || m.slices[0] || null;
+    activeSliceId = filtered[0].id;
+    return filtered[0];
   }
 
   function populateMatchSelector() {
@@ -1332,6 +1342,7 @@ export function initFullMatchWorkspace({
         });
       });
     } else {
+      teamTabsEl.innerHTML = '';
       teamTabsEl.style.display = 'none';
     }
 
@@ -1711,24 +1722,54 @@ export function initFullMatchWorkspace({
     const match = getActiveMatch();
     const slice = getActiveSlice();
     if (!slice) {
+      detClockEl.textContent = '—';
+      detTeamEl.textContent = '0 命中';
       detTitleEl.textContent = '当前筛选条件下暂无命中切片，请放宽或重置左侧四维筛选器';
       detMetricsEl.textContent = '';
       detProgEl.textContent = '—';
+      detProgEl.classList.remove('neg');
       editJerseyEl.value = '';
       editPlayerEl.value = '';
       editSummaryEl.value = '';
+      editJerseyEl.disabled = true;
+      editPlayerEl.disabled = true;
+      editSummaryEl.disabled = true;
+      Object.values(editSelects).forEach((s) => {
+        s.disabled = true;
+      });
       btnStarSliceEl.textContent = '☆';
       btnStarSliceEl.classList.remove('starred');
       btnStarSliceEl.disabled = true;
       btnSendTo3DEl.disabled = true;
       btnDeleteSliceEl.disabled = true;
+      btnTrimInMinusEl.disabled = true;
+      btnTrimInPlusEl.disabled = true;
+      btnTrimOutMinusEl.disabled = true;
+      btnTrimOutPlusEl.disabled = true;
+      try {
+        sliceVideoEl.pause();
+      } catch {}
+      sliceVideoEl.style.opacity = '0.16';
+      videoBadgeEl.textContent = '⏸ 0 条命中切片';
+      videoRangeLabelEl.textContent = '—';
       return;
     }
+    sliceVideoEl.style.opacity = '';
+    editJerseyEl.disabled = false;
+    editPlayerEl.disabled = false;
+    editSummaryEl.disabled = false;
+    Object.values(editSelects).forEach((s) => {
+      s.disabled = false;
+    });
     btnStarSliceEl.disabled = false;
     btnStarSliceEl.textContent = slice.starred ? '★' : '☆';
     btnStarSliceEl.classList.toggle('starred', Boolean(slice.starred));
     btnSendTo3DEl.disabled = false;
     btnDeleteSliceEl.disabled = match.slices.length <= 1;
+    btnTrimInMinusEl.disabled = false;
+    btnTrimInPlusEl.disabled = false;
+    btnTrimOutMinusEl.disabled = false;
+    btnTrimOutPlusEl.disabled = false;
 
     const pMeta = PRESSING_TAXONOMY.pressType.items[slice.pressType];
     const zMeta = PRESSING_TAXONOMY.pitchZone.items[slice.pitchZone];
@@ -2548,14 +2589,20 @@ export function initFullMatchWorkspace({
         ctx.stroke();
 
         // Explicit pass-lane badge near visible teammates in 2.2x zoomed 360° mode
-        const inView = mx > ox + 28 && mx < ox + pw - 28 && my > oy + 22 && my < oy + ph - 32;
+        // Clamp strictly clear of top HUD ([oy+8, oy+27]) and bottom 360° HUD ([oy+ph-26, oy+ph-6])
+        const inView = mx > ox + 28 && mx < ox + pw - 28 && my > oy + 24 && my < oy + ph - 30;
         if (isZoomed360 && inView && badgeDrawnCount < 5) {
           badgeDrawnCount++;
           const lbl = blocked ? '遮蔽 ✕' : `开放 ${passDistM.toFixed(1)}m`;
           ctx.font = '600 9.5px "Inter", "Noto Sans SC", monospace';
           const bw = ctx.measureText(lbl).width + 10;
-          const bx = clamp(mx - bw * 0.5, ox + 4, ox + pw - bw - 4);
-          const by = my < hy ? my - 23 : my + 10;
+          const bx = clamp(mx - bw * 0.5, ox + 6, ox + pw - bw - 6);
+          const topSafe = oy + 32;
+          const botSafe = oy + ph - 32 - 15;
+          let by = my < hy ? my - 23 : my + 10;
+          if (by > botSafe) by = my - 23;
+          if (by < topSafe) by = my + 10;
+          by = clamp(by, topSafe, botSafe);
           ctx.fillStyle = blocked ? 'rgba(69, 10, 10, 0.86)' : 'rgba(6, 46, 36, 0.86)';
           ctx.strokeStyle = blocked ? 'rgba(248, 113, 113, 0.65)' : 'rgba(52, 211, 153, 0.72)';
           ctx.lineWidth = 1;
@@ -2613,20 +2660,20 @@ export function initFullMatchWorkspace({
           ctx.fillText(`D${idx + 1}`, px, py + 3);
         }
 
-        // Exact distance label in 360° mode (dark pill offset away from ball carrier & deflected clear of escape vector)
-        if (stageMode === 'pitch_360' && isPresser && op.distM) {
+        // Exact distance label in 360° mode (2-decimal uniform precision, clamped clear of HUD bars)
+        if (stageMode === 'pitch_360' && isPresser && op.distM != null) {
           let lblAng = Math.atan2(py - hy, px - hx);
           const diffEsc = Math.atan2(Math.sin(lblAng - escAng), Math.cos(lblAng - escAng));
           if (isZoomed360 && Math.abs(diffEsc) < 0.45) {
             lblAng += diffEsc >= 0 ? 0.72 : -0.72;
           }
           const distOff = isZoomed360 ? 25 : 14;
-          const lx = px + Math.cos(lblAng) * distOff;
-          const ly = py + Math.sin(lblAng) * distOff;
-          const dTxt = `${op.distM}m`;
+          const dTxt = `${Number(op.distM).toFixed(2)}m`;
           ctx.font = '700 9.5px "JetBrains Mono", monospace';
+          const dw = ctx.measureText(dTxt).width + 8;
+          const lx = clamp(px + Math.cos(lblAng) * distOff, ox + dw * 0.5 + 6, ox + pw - dw * 0.5 - 6);
+          const ly = clamp(py + Math.sin(lblAng) * distOff, oy + 38, oy + ph - 38);
           if (isZoomed360) {
-            const dw = ctx.measureText(dTxt).width + 8;
             ctx.fillStyle = 'rgba(15, 23, 42, 0.88)';
             ctx.strokeStyle = 'rgba(248, 113, 113, 0.65)';
             ctx.lineWidth = 0.9;
@@ -2701,6 +2748,24 @@ export function initFullMatchWorkspace({
     ctx.lineWidth = 1.2;
     ctx.strokeRect(ox, oy, pw, ph);
 
+    // Empty-Filter Tactical Board Callout (when 0 slices match current filter criteria)
+    if (!curActive && filtered.length === 0) {
+      const msg = '当前筛选条件命中 0 条切片 · 请调整筛选或点击左侧「重置筛选」';
+      ctx.font = '600 11.5px "Inter", "Noto Sans SC", sans-serif';
+      const mw = Math.min(pw - 24, ctx.measureText(msg).width + 28);
+      const mh = 34;
+      const mxBox = ox + (pw - mw) * 0.5;
+      const myBox = oy + (ph - mh) * 0.5;
+      ctx.fillStyle = 'rgba(9, 15, 28, 0.92)';
+      ctx.strokeStyle = 'rgba(148, 163, 184, 0.50)';
+      ctx.lineWidth = 1.2;
+      ctx.fillRect(mxBox, myBox, mw, mh);
+      ctx.strokeRect(mxBox, myBox, mw, mh);
+      ctx.fillStyle = '#e2e8f0';
+      ctx.textAlign = 'center';
+      ctx.fillText(msg, ox + pw * 0.5, myBox + 21);
+    }
+
     // Unclipped HUD Badges in 360° Mode (Top-left active callout + Top-right scale + Bottom-left space evaluation)
     if (stageMode === 'pitch_360' && curActive) {
       const prog = sliceNetProgressionM(curActive);
@@ -2747,9 +2812,18 @@ export function initFullMatchWorkspace({
     const mx = e.clientX - rect.left;
     const my = e.clientY - rect.top;
 
-    // 1. Check slice dot hit first
+    // 1. Check clickable pitch zone HUD pills FIRST so underlying dots never hijack direct pill clicks
+    for (const zb of pitchZoneHitBoxes) {
+      if (mx >= zb.x && mx <= zb.x + zb.w && my >= zb.y && my <= zb.y + zb.h) {
+        filters.pitchZone = filters.pitchZone === zb.zoneKey ? 'ALL' : zb.zoneKey;
+        renderAll();
+        return;
+      }
+    }
+
+    // 2. Check slice dot hit
     let best = null;
-    let bestD = 18;
+    let bestD = 14;
     for (const pt of pitchHitPoints) {
       const d = Math.hypot(pt.x - mx, pt.y - my);
       if (d < bestD) {
@@ -2761,15 +2835,15 @@ export function initFullMatchWorkspace({
       selectSliceById(best.id, true);
       return;
     }
+  });
 
-    // 2. Check clickable pitch zone HUD pill hit
-    for (const zb of pitchZoneHitBoxes) {
-      if (mx >= zb.x && mx <= zb.x + zb.w && my >= zb.y && my <= zb.y + zb.h) {
-        filters.pitchZone = filters.pitchZone === zb.zoneKey ? 'ALL' : zb.zoneKey;
-        renderAll();
-        return;
-      }
-    }
+  pitchCanvas.addEventListener('mousemove', (e) => {
+    const rect = pitchCanvas.getBoundingClientRect();
+    const mx = e.clientX - rect.left;
+    const my = e.clientY - rect.top;
+    const overZone = pitchZoneHitBoxes.some((zb) => mx >= zb.x && mx <= zb.x + zb.w && my >= zb.y && my <= zb.y + zb.h);
+    const overDot = !overZone && pitchHitPoints.some((pt) => Math.hypot(pt.x - mx, pt.y - my) < 14);
+    pitchCanvas.style.cursor = overZone || overDot ? 'pointer' : 'default';
   });
 
   // ==========================================================================

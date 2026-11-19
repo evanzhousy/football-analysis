@@ -3300,10 +3300,34 @@ button.fm-tempo-col.active .fm-tempo-val {
     grid-template-rows: minmax(0, 1fr) 208px;
   }
 
+  .fm-center-stage.diag-compact-dock {
+    grid-template-rows: minmax(0, 1fr) 92px;
+  }
+
+  .fm-center-stage.diag-compact-dock .fm-detail-badges {
+    flex-wrap: nowrap;
+    overflow: hidden;
+  }
+
+  .fm-center-stage.diag-compact-dock .fm-metrics-inline {
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
   .fm-inspector-card {
     padding: 7px 9px;
-    grid-template-columns: 212px minmax(0, 1fr);
+    grid-template-columns: 230px minmax(0, 1fr);
     gap: 9px;
+  }
+
+  .fm-trim-btn {
+    padding: 1.5px 4px;
+    font-size: 9.5px;
+  }
+
+  .fm-video-range {
+    font-size: 9.5px;
   }
 
   .fm-detail-top {
