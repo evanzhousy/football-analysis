@@ -18,6 +18,7 @@ import {
   scanLocalMatchVideoInBrowser,
   computeFullMatchAnalytics,
   buildMatchScoutingReportMarkdown,
+  buildFfmpegCutupScript,
   sliceNetProgressionM,
   parseClockToSeconds
 } from './fullMatchEngine.js';
@@ -50,6 +51,24 @@ function hexToRgba(hex, alpha) {
   const g = (num >> 8) & 255;
   const b = num & 255;
   return `rgba(${r}, ${g}, ${b}, ${alpha})`;
+}
+
+/**
+ * Returns teams in canonical [Home, Away] order matching `homeTeamZh` (Gold #facc15)
+ * and `awayTeamZh` (Cyan #38bdf8), preventing color inversions when the away team
+ * appears in Slice #1 (e.g., Euro 2024 ESP vs GER).
+ */
+function getOrderedTeams(match) {
+  const present = Array.from(new Set((match?.slices || []).map((s) => s.team).filter(Boolean)));
+  const ordered = [];
+  if (match?.homeTeamZh && present.includes(match.homeTeamZh)) ordered.push(match.homeTeamZh);
+  if (match?.awayTeamZh && present.includes(match.awayTeamZh) && !ordered.includes(match.awayTeamZh)) {
+    ordered.push(match.awayTeamZh);
+  }
+  for (const t of present) {
+    if (!ordered.includes(t)) ordered.push(t);
+  }
+  return ordered;
 }
 
 /**
@@ -107,17 +126,19 @@ export function initFullMatchWorkspace({
   function cloneBuiltinMatchWithPatches(baseMatch) {
     const patch = storedPatches[baseMatch.id];
     const deletedSet = new Set(patch?.deletedIds || []);
+    const starredSet = new Set(patch?.starredIds || []);
     const modMap = patch?.modifiedSlices || {};
     const slices = baseMatch.slices
       .filter((s) => !deletedSet.has(s.id))
       .map((s) => ({
         ...s,
-        ...(modMap[s.id] || {})
+        ...(modMap[s.id] || {}),
+        starred: starredSet.has(s.id) || Boolean(modMap[s.id]?.starred)
       }));
     if (Array.isArray(patch?.customSlices)) {
       for (const cs of patch.customSlices) {
         if (!deletedSet.has(cs.id)) {
-          slices.push({ ...cs });
+          slices.push({ ...cs, starred: starredSet.has(cs.id) || Boolean(cs.starred) });
         }
       }
     }
@@ -136,15 +157,20 @@ export function initFullMatchWorkspace({
   let sortByMode = 'clock'; // 'clock' | 'intensity' | 'dist' | 'prog'
   let stageMode = 'pitch_heat'; // 'pitch_heat' | 'pitch_360' | 'diagnosis'
   let showZoneHudOverlay = true;
+  let zoom360Tactical = true; // 2.2x focused 360° cover-shadow tactical camera
+  let diagCompactDock = true; // Auto-compact bottom dock in Diagnosis view so all 5 blocks fit above the fold
   let videoPlaybackRate = 0.5;
   let playlistAutoAdvance = false;
   let scanAbortController = null;
   let pendingScanFile = null;
   let hoveredTimelineSliceId = null;
+  let timelineBrushState = null; // { startX, curX, dragging, padL, plotW, maxSec }
 
   const filters = {
     team: 'ALL',
     period: 'ALL',
+    minuteRange: null, // [min0, min1] | null
+    starredOnly: false,
     pressType: 'ALL',
     pitchZone: 'ALL',
     escapeOutcome: 'ALL',
@@ -183,6 +209,7 @@ export function initFullMatchWorkspace({
           <span id="fm-source-pill" class="fm-source-pill"></span>
         </div>
         <div class="fm-timeline-controls">
+          <button id="fm-range-chip" class="fm-range-chip" type="button" style="display:none;" title="点击清除时间段框选筛选"></button>
           <div id="fm-team-tabs" class="fm-seg-group" role="tablist" aria-label="持球球队视角切换"></div>
           <div id="fm-period-tabs" class="fm-seg-group" role="tablist" aria-label="比赛半场筛选"></div>
           <div class="fm-timeline-legend">
@@ -194,7 +221,7 @@ export function initFullMatchWorkspace({
           </div>
         </div>
       </div>
-      <div class="fm-timeline-canvas-wrap">
+      <div class="fm-timeline-canvas-wrap" title="单击节点定位切片；按住拖拽可框选任意分钟时间段">
         <canvas id="fm-timeline-canvas"></canvas>
         <div id="fm-timeline-tooltip" class="fm-timeline-tooltip" style="display:none;"></div>
       </div>
@@ -202,7 +229,7 @@ export function initFullMatchWorkspace({
 
     <!-- Main 3-Column Tactical Breakdown Grid -->
     <div class="fm-body-grid">
-      <!-- Left Column: KPIs + Search + 4D Taxonomy Filters -->
+      <!-- Left Column: KPIs + Search + Shortlist + 4D Taxonomy Filters -->
       <aside class="fm-filter-panel" aria-label="四维逼抢分类筛选面板">
         <div class="fm-kpi-grid">
           <div class="fm-kpi-box">
@@ -224,7 +251,10 @@ export function initFullMatchWorkspace({
         </div>
 
         <div class="fm-search-row">
-          <input id="fm-search-input" class="fm-search-input" type="search" placeholder="🔍 搜索球员、时刻或战术关键词..." aria-label="搜索切片" />
+          <input id="fm-search-input" class="fm-search-input" type="search" placeholder="🔍 搜索球员、时刻或关键词..." aria-label="搜索切片" />
+          <button id="btn-fm-starred-only" class="fm-star-filter-btn" type="button" title="仅显示标星收入「精选剪辑包」的重点会议片段">
+            ★ <em id="fm-starred-count">0</em>
+          </button>
         </div>
 
         <div class="fm-filter-header">
@@ -258,20 +288,26 @@ export function initFullMatchWorkspace({
           </div>
 
           <div class="fm-cli-card">
-            <div class="fm-cli-title">⚡ 离线超清整场批处理 CLI (含缩略图/CSV/报告/FFmpeg切片)</div>
+            <div class="fm-cli-head">
+              <span class="fm-cli-title">⚡ 离线 CLI & FFmpeg 剪辑包</span>
+              <button id="btn-fm-export-sh" class="fm-cli-export-btn" type="button" title="将当前筛选/标星切片导出为可执行的 FFmpeg 自动合并视频剪辑脚本 (.sh)">🎬 导出.sh剪辑脚本</button>
+            </div>
             <code>python scripts/analyze_full_match_pressing.py --video match.mp4 --export-clips</code>
           </div>
         </div>
       </aside>
 
       <!-- Center Column: 3-Mode Tactical Stage + Active Slice Video Studio & Live Editor -->
-      <section class="fm-center-stage" aria-label="球场空间热力分布、战术诊断与当前切片检阅舱">
+      <section id="fm-center-stage" class="fm-center-stage" aria-label="球场空间热力分布、战术诊断与当前切片检阅舱">
         <div class="fm-pitch-card">
           <div class="fm-card-bar">
             <div class="fm-card-bar-left">
               <span id="fm-stage-eyebrow" class="fm-eyebrow">105m × 68m 逼抢热区 & 分区破围</span>
               <span id="fm-stage-sub" class="fm-attack-dir">本方后场 ➔ 对方球门</span>
               <button id="btn-toggle-zone-hud" class="fm-mini-chip active" type="button" title="在球场上叠加四区破围率与点击筛选">分区破围层</button>
+              <button id="btn-toggle-360-zoom" class="fm-mini-chip active" type="button" style="display:none;" title="在 2.2x 局部战术特写与 105m 全场鸟瞰间切换">🔍 局部特写 2.2x</button>
+              <button id="btn-toggle-diag-dock" class="fm-mini-chip" type="button" style="display:none;" title="展开或折叠底部视频舱以最大化全场诊断表格空间">🎬 展开视频舱</button>
+              <button id="btn-export-pitch-png" class="fm-mini-chip" type="button" title="导出高清带标注 PNG 战术图用于赛后复盘 PPT">📸 导图</button>
             </div>
             <div class="fm-pitch-mode-tabs" role="tablist">
               <button id="btn-stage-heat" class="fm-mini-tab active" data-stage="pitch_heat" type="button">🗺️ 热区&分区</button>
@@ -285,7 +321,7 @@ export function initFullMatchWorkspace({
           <div id="fm-diagnosis-view" class="fm-diagnosis-view" style="display:none;"></div>
         </div>
 
-        <div class="fm-inspector-card">
+        <div id="fm-inspector-card" class="fm-inspector-card">
           <div class="fm-slice-video-col">
             <div class="fm-video-box">
               <video id="fm-slice-video" muted playsinline controls preload="metadata"></video>
@@ -319,6 +355,7 @@ export function initFullMatchWorkspace({
             <div class="fm-detail-top">
               <div>
                 <div class="fm-detail-badges">
+                  <button id="btn-fm-star-slice" class="fm-star-btn" type="button" title="收入/移出教练「★ 精选剪辑包」 (快捷键 S)">☆</button>
                   <span id="fm-det-clock" class="fm-clock-pill">00:31</span>
                   <span id="fm-det-team" class="fm-team-pill">巴塞罗那</span>
                   <span id="fm-det-prog" class="fm-prog-pill">+0.0m</span>
@@ -332,7 +369,9 @@ export function initFullMatchWorkspace({
             </div>
 
             <div class="fm-edit-note-row">
-              <input id="fm-edit-summary" class="fm-edit-summary-input" type="text" aria-label="编辑战术切片摘要" placeholder="点击此处直接批注战术观察要点（自动保存）..." />
+              <input id="fm-edit-jersey" class="fm-edit-mini-input jersey" type="text" maxlength="3" aria-label="编辑球衣号码" title="修改球衣号 (自动保存)" placeholder="#" />
+              <input id="fm-edit-player" class="fm-edit-mini-input player" type="text" aria-label="编辑持球球员名" title="修改持球球员名称 (自动保存)" placeholder="球员名" />
+              <input id="fm-edit-summary" class="fm-edit-summary-input" type="text" aria-label="编辑战术切片摘要" placeholder="点击批注战术观察要点（自动保存）..." />
               <div id="fm-offset-ctrl" class="fm-offset-ctrl" style="display:none;" title="校准本地比赛录像开球偏移秒数">
                 <span>偏移</span>
                 <button id="btn-fm-offset-minus" class="fm-trim-btn" type="button">-5s</button>
@@ -451,6 +490,7 @@ export function initFullMatchWorkspace({
   const compBadgeEl = document.getElementById('fm-comp-badge');
   const matchTitleEl = document.getElementById('fm-match-title');
   const sourcePillEl = document.getElementById('fm-source-pill');
+  const rangeChipEl = document.getElementById('fm-range-chip');
   const teamTabsEl = document.getElementById('fm-team-tabs');
   const periodTabsEl = document.getElementById('fm-period-tabs');
   const timelineCanvas = document.getElementById('fm-timeline-canvas');
@@ -461,12 +501,19 @@ export function initFullMatchWorkspace({
   const kpiHeavyEl = document.getElementById('fm-kpi-heavy');
   const kpiDistEl = document.getElementById('fm-kpi-dist');
   const searchInputEl = document.getElementById('fm-search-input');
+  const btnStarredOnlyEl = document.getElementById('btn-fm-starred-only');
+  const starredCountEl = document.getElementById('fm-starred-count');
   const btnResetFiltersEl = document.getElementById('btn-fm-reset-filters');
   const btnRestoreEditsEl = document.getElementById('btn-fm-restore-edits');
+  const btnExportShEl = document.getElementById('btn-fm-export-sh');
 
+  const centerStageEl = document.getElementById('fm-center-stage');
   const stageEyebrowEl = document.getElementById('fm-stage-eyebrow');
   const stageSubEl = document.getElementById('fm-stage-sub');
   const btnToggleZoneHudEl = document.getElementById('btn-toggle-zone-hud');
+  const btnToggle360ZoomEl = document.getElementById('btn-toggle-360-zoom');
+  const btnToggleDiagDockEl = document.getElementById('btn-toggle-diag-dock');
+  const btnExportPitchPngEl = document.getElementById('btn-export-pitch-png');
   const pitchCanvasWrapEl = document.getElementById('fm-pitch-canvas-wrap');
   const pitchCanvas = document.getElementById('fm-pitch-canvas');
   const diagnosisViewEl = document.getElementById('fm-diagnosis-view');
@@ -486,11 +533,14 @@ export function initFullMatchWorkspace({
   const btnTrimOutPlusEl = document.getElementById('btn-fm-trim-out-plus');
   const btnAddSliceEl = document.getElementById('btn-fm-add-slice');
 
+  const btnStarSliceEl = document.getElementById('btn-fm-star-slice');
   const detClockEl = document.getElementById('fm-det-clock');
   const detTeamEl = document.getElementById('fm-det-team');
   const detProgEl = document.getElementById('fm-det-prog');
   const detMetricsEl = document.getElementById('fm-det-metrics');
   const detTitleEl = document.getElementById('fm-det-title');
+  const editJerseyEl = document.getElementById('fm-edit-jersey');
+  const editPlayerEl = document.getElementById('fm-edit-player');
   const editSummaryEl = document.getElementById('fm-edit-summary');
   const offsetCtrlEl = document.getElementById('fm-offset-ctrl');
   const offsetValEl = document.getElementById('fm-offset-val');
@@ -538,13 +588,26 @@ export function initFullMatchWorkspace({
     }, 1800);
   }
 
+  function ensureMatchPatchRecord(matchId) {
+    if (!storedPatches[matchId]) {
+      storedPatches[matchId] = {
+        modifiedSlices: {},
+        deletedIds: [],
+        starredIds: [],
+        customSlices: [],
+        kickoffOffsetSec: 0
+      };
+    }
+    if (!Array.isArray(storedPatches[matchId].starredIds)) {
+      storedPatches[matchId].starredIds = [];
+    }
+    return storedPatches[matchId];
+  }
+
   function persistSlicePatch(match, slice, isCustom = false) {
     const isBuiltin = BUILTIN_FULL_MATCHES.some((b) => b.id === match.id);
     if (!isBuiltin) return;
-    if (!storedPatches[match.id]) {
-      storedPatches[match.id] = { modifiedSlices: {}, deletedIds: [], customSlices: [], kickoffOffsetSec: 0 };
-    }
-    const rec = storedPatches[match.id];
+    const rec = ensureMatchPatchRecord(match.id);
     if (isCustom || slice._isCustom) {
       const idx = rec.customSlices.findIndex((x) => x.id === slice.id);
       const copy = { ...slice };
@@ -556,14 +619,27 @@ export function initFullMatchWorkspace({
         pitchZone: slice.pitchZone,
         escapeOutcome: slice.escapeOutcome,
         playerRole: slice.playerRole,
+        playerName: slice.playerName,
+        jerseyNumber: slice.jerseyNumber,
         summary: slice.summary,
+        starred: Boolean(slice.starred),
         tStart: slice.tStart,
         tEnd: slice.tEnd,
         duration: slice.duration,
         clock: slice.clock
       };
     }
+    rec.starredIds = match.slices.filter((s) => s.starred).map((s) => s.id);
     rec.kickoffOffsetSec = Number(match.kickoffOffsetSec || 0);
+    saveStoredPatches(storedPatches);
+    flashSavedIndicator();
+  }
+
+  function persistStarredIds(match) {
+    const isBuiltin = BUILTIN_FULL_MATCHES.some((b) => b.id === match.id);
+    if (!isBuiltin) return;
+    const rec = ensureMatchPatchRecord(match.id);
+    rec.starredIds = match.slices.filter((s) => s.starred).map((s) => s.id);
     saveStoredPatches(storedPatches);
     flashSavedIndicator();
   }
@@ -571,11 +647,9 @@ export function initFullMatchWorkspace({
   function persistSliceDelete(match, sliceId) {
     const isBuiltin = BUILTIN_FULL_MATCHES.some((b) => b.id === match.id);
     if (!isBuiltin) return;
-    if (!storedPatches[match.id]) {
-      storedPatches[match.id] = { modifiedSlices: {}, deletedIds: [], customSlices: [], kickoffOffsetSec: 0 };
-    }
-    const rec = storedPatches[match.id];
+    const rec = ensureMatchPatchRecord(match.id);
     if (!rec.deletedIds.includes(sliceId)) rec.deletedIds.push(sliceId);
+    rec.starredIds = (rec.starredIds || []).filter((id) => id !== sliceId);
     rec.customSlices = (rec.customSlices || []).filter((x) => x.id !== sliceId);
     delete rec.modifiedSlices[sliceId];
     saveStoredPatches(storedPatches);
@@ -588,9 +662,20 @@ export function initFullMatchWorkspace({
     return (
       Object.keys(p.modifiedSlices || {}).length > 0 ||
       (p.deletedIds || []).length > 0 ||
+      (p.starredIds || []).length > 0 ||
       (p.customSlices || []).length > 0 ||
       Boolean(p.kickoffOffsetSec)
     );
+  }
+
+  function toggleSliceStar(sliceId = null) {
+    const match = getActiveMatch();
+    const target = sliceId ? match.slices.find((s) => s.id === sliceId) : getActiveSlice();
+    if (!target) return false;
+    target.starred = !target.starred;
+    persistStarredIds(match);
+    renderAll({ keepVideo: true });
+    return Boolean(target.starred);
   }
 
   // Populate Re-Classification Dropdowns
@@ -609,6 +694,32 @@ export function initFullMatchWorkspace({
     });
   }
 
+  btnStarSliceEl.addEventListener('click', () => toggleSliceStar());
+
+  editJerseyEl.addEventListener('change', () => {
+    const match = getActiveMatch();
+    const slice = getActiveSlice();
+    if (!slice) return;
+    const val = editJerseyEl.value.trim().replace(/^#/, '').slice(0, 3);
+    if (val && val !== String(slice.jerseyNumber || '')) {
+      slice.jerseyNumber = val;
+      persistSlicePatch(match, slice);
+      renderAll({ keepVideo: true });
+    }
+  });
+
+  editPlayerEl.addEventListener('change', () => {
+    const match = getActiveMatch();
+    const slice = getActiveSlice();
+    if (!slice) return;
+    const val = editPlayerEl.value.trim();
+    if (val && val !== slice.playerName) {
+      slice.playerName = val;
+      persistSlicePatch(match, slice);
+      renderAll({ keepVideo: true });
+    }
+  });
+
   editSummaryEl.addEventListener('change', () => {
     const match = getActiveMatch();
     const slice = getActiveSlice();
@@ -621,11 +732,41 @@ export function initFullMatchWorkspace({
     }
   });
 
+  btnStarredOnlyEl.addEventListener('click', () => {
+    filters.starredOnly = !filters.starredOnly;
+    renderAll();
+  });
+
+  rangeChipEl.addEventListener('click', () => {
+    filters.minuteRange = null;
+    renderAll();
+  });
+
+  btnExportShEl.addEventListener('click', () => {
+    const match = getActiveMatch();
+    const rows = getFilteredSlices();
+    const sh = buildFfmpegCutupScript(match, rows);
+    const suffix = filters.starredOnly ? 'shortlist' : 'filtered';
+    triggerDownload(
+      new Blob([sh], { type: 'text/x-shellscript;charset=utf-8' }),
+      `cutup_${match.id}_${suffix}.sh`
+    );
+  });
+
   function getActiveMatch() {
     return matches.find((m) => m.id === activeMatchId) || matches[0];
   }
 
   function matchesFilter(slice, omitDim = null) {
+    if (omitDim !== 'starredOnly' && filters.starredOnly && !slice.starred) {
+      return false;
+    }
+    if (omitDim !== 'minuteRange' && Array.isArray(filters.minuteRange) && filters.minuteRange.length === 2) {
+      const m = parseClockToSeconds(slice.clock, slice.tStart) / 60;
+      if (m < filters.minuteRange[0] || m >= filters.minuteRange[1]) {
+        return false;
+      }
+    }
     if (omitDim !== 'team' && filters.team !== 'ALL' && slice.team !== filters.team) {
       return false;
     }
@@ -711,6 +852,8 @@ export function initFullMatchWorkspace({
   function resetFilters(shouldRender = true) {
     filters.team = 'ALL';
     filters.period = 'ALL';
+    filters.minuteRange = null;
+    filters.starredOnly = false;
     filters.pressType = 'ALL';
     filters.pitchZone = 'ALL';
     filters.escapeOutcome = 'ALL';
@@ -1002,6 +1145,63 @@ export function initFullMatchWorkspace({
   // ==========================================================================
   // 3-Mode Center Stage Controller (`pitch_heat` | `pitch_360` | `diagnosis`)
   // ==========================================================================
+  function syncStageChrome() {
+    centerStageEl.classList.toggle('diag-compact-dock', stageMode === 'diagnosis' && diagCompactDock);
+    btnToggle360ZoomEl.classList.toggle('active', zoom360Tactical);
+    btnToggle360ZoomEl.textContent = zoom360Tactical ? '🔍 局部特写 2.2x' : '🏟️ 全场鸟瞰 105m';
+    btnToggleDiagDockEl.classList.toggle('active', !diagCompactDock);
+    btnToggleDiagDockEl.textContent = diagCompactDock ? '🎬 展开视频舱' : '📐 折叠视频舱';
+  }
+
+  function exportPitchBoardPng() {
+    if (stageMode === 'diagnosis') return;
+    drawPitchCanvas();
+    const match = getActiveMatch();
+    const slice = getActiveSlice();
+    const srcW = pitchCanvas.width || 1200;
+    const srcH = pitchCanvas.height || 760;
+    const headerH = Math.round(srcH * 0.13);
+    const out = document.createElement('canvas');
+    out.width = srcW;
+    out.height = srcH + headerH;
+    const octx = out.getContext('2d');
+
+    // Tactical slide dark backdrop & metadata header
+    octx.fillStyle = '#070e1a';
+    octx.fillRect(0, 0, out.width, out.height);
+    octx.fillStyle = '#0c1628';
+    octx.fillRect(0, 0, out.width, headerH);
+    octx.strokeStyle = 'rgba(56, 189, 248, 0.45)';
+    octx.lineWidth = 2;
+    octx.beginPath();
+    octx.moveTo(0, headerH - 1);
+    octx.lineTo(out.width, headerH - 1);
+    octx.stroke();
+
+    const titleFontPx = Math.max(18, Math.round(headerH * 0.30));
+    const subFontPx = Math.max(13, Math.round(headerH * 0.22));
+    const padX = Math.round(out.width * 0.025);
+    octx.fillStyle = '#f8fafc';
+    octx.font = `700 ${titleFontPx}px "Inter", "Noto Sans SC", sans-serif`;
+    octx.textAlign = 'left';
+    const modeTag = stageMode === 'pitch_360' ? '360° 压迫遮蔽战术板' : '105m 逼抢热区 & 分区破围板';
+    octx.fillText(`${match.title} · ${modeTag}`, padX, Math.round(headerH * 0.44));
+
+    octx.fillStyle = '#94a3b8';
+    octx.font = `500 ${subFontPx}px "Inter", "Noto Sans SC", sans-serif`;
+    const subLine = slice
+      ? `切片 #${String(slice.index).padStart(2, '0')} [${slice.clock}] ${slice.team} #${slice.jerseyNumber || '8'} ${slice.playerName} · ${PRESSING_TAXONOMY.pressType.items[slice.pressType]?.label || ''} × ${PRESSING_TAXONOMY.escapeOutcome.items[slice.escapeOutcome]?.label || ''} · 贴防 ${slice.minDefDistM}m · 净推进 ${sliceNetProgressionM(slice) >= 0 ? '+' : ''}${sliceNetProgressionM(slice)}m`
+      : `筛选切片: ${getFilteredSlices().length} / ${match.slices.length}`;
+    octx.fillText(subLine, padX, Math.round(headerH * 0.80));
+
+    octx.drawImage(pitchCanvas, 0, headerH);
+    out.toBlob((blob) => {
+      if (!blob) return;
+      const stamp = slice ? slice.clock.replace(':', 'm') : 'all';
+      triggerDownload(blob, `tactical_board_${match.id}_${stageMode}_${stamp}.png`);
+    }, 'image/png');
+  }
+
   function setStageMode(nextMode) {
     if (!['pitch_heat', 'pitch_360', 'diagnosis'].includes(nextMode)) return;
     stageMode = nextMode;
@@ -1011,24 +1211,36 @@ export function initFullMatchWorkspace({
 
     if (stageMode === 'diagnosis') {
       stageEyebrowEl.textContent = '整场持球逼抢诊断报告 · 双边对决 × 交叉矩阵 × 抗压榜';
-      stageSubEl.textContent = '点击任意矩阵格子或球员行可直接联动筛选切片';
+      stageSubEl.textContent = '点击 15分钟柱条 / 矩阵格 / 球员行 即可联动筛选切片';
       btnToggleZoneHudEl.style.display = 'none';
+      btnToggle360ZoomEl.style.display = 'none';
+      btnToggleDiagDockEl.style.display = 'inline-flex';
+      btnExportPitchPngEl.style.display = 'none';
       pitchCanvasWrapEl.style.display = 'none';
       diagnosisViewEl.style.display = 'flex';
+      syncStageChrome();
       renderDiagnosisView();
     } else if (stageMode === 'pitch_360') {
       stageEyebrowEl.textContent = '360° 单帧压迫遮蔽站位 & 传球通道诊断';
-      stageSubEl.textContent = '红扇区=防守遮蔽阴影 · 绿虚线=开放接应 · 红叉=路线封堵';
+      stageSubEl.textContent = '红扇区=防守遮蔽阴影 · 绿虚线=开放出球 · 2.5m/5m 压迫环';
       btnToggleZoneHudEl.style.display = 'none';
+      btnToggle360ZoomEl.style.display = 'inline-flex';
+      btnToggleDiagDockEl.style.display = 'none';
+      btnExportPitchPngEl.style.display = 'inline-flex';
       diagnosisViewEl.style.display = 'none';
       pitchCanvasWrapEl.style.display = 'block';
+      syncStageChrome();
       drawPitchCanvas();
     } else {
       stageEyebrowEl.textContent = '105m × 68m 逼抢热区 & 分区破围率';
       stageSubEl.textContent = '本方后场 ➔ 对方球门 · 点击球场分区徽章可直接筛选';
       btnToggleZoneHudEl.style.display = 'inline-flex';
+      btnToggle360ZoomEl.style.display = 'none';
+      btnToggleDiagDockEl.style.display = 'none';
+      btnExportPitchPngEl.style.display = 'inline-flex';
       diagnosisViewEl.style.display = 'none';
       pitchCanvasWrapEl.style.display = 'block';
+      syncStageChrome();
       drawPitchCanvas();
     }
     return stageMode;
@@ -1043,6 +1255,19 @@ export function initFullMatchWorkspace({
     btnToggleZoneHudEl.classList.toggle('active', showZoneHudOverlay);
     drawPitchCanvas();
   });
+
+  btnToggle360ZoomEl.addEventListener('click', () => {
+    zoom360Tactical = !zoom360Tactical;
+    syncStageChrome();
+    drawPitchCanvas();
+  });
+
+  btnToggleDiagDockEl.addEventListener('click', () => {
+    diagCompactDock = !diagCompactDock;
+    syncStageChrome();
+  });
+
+  btnExportPitchPngEl.addEventListener('click', () => exportPitchBoardPng());
 
   containerEl.querySelectorAll('.fm-grp-btn').forEach((btn) => {
     btn.addEventListener('click', () => {
@@ -1075,8 +1300,18 @@ export function initFullMatchWorkspace({
       ? `🔗 已绑定本地录像 (${match._userBoundVideoName})`
       : match.sourceLabel || '';
 
-    // Team Perspective Segmented Control
-    const distinctTeams = Array.from(new Set(all.map((s) => s.team).filter(Boolean)));
+    // Active Minute-Range Chip (from Tempo Wave click or Timeline Drag-Brush)
+    if (Array.isArray(filters.minuteRange) && filters.minuteRange.length === 2) {
+      const [m0, m1] = filters.minuteRange;
+      const endLbl = m1 >= Math.max(96, match.totalMinutes + 4) ? `${match.totalMinutes}'+` : `${m1}'`;
+      rangeChipEl.textContent = `⏱ ${m0}'–${endLbl} ×`;
+      rangeChipEl.style.display = 'inline-flex';
+    } else {
+      rangeChipEl.style.display = 'none';
+    }
+
+    // Team Perspective Segmented Control (Canonical [Home=Gold, Away=Cyan] ordering!)
+    const distinctTeams = getOrderedTeams(match);
     if (distinctTeams.length >= 2) {
       teamTabsEl.style.display = 'inline-flex';
       teamTabsEl.innerHTML =
@@ -1122,16 +1357,23 @@ export function initFullMatchWorkspace({
       });
     });
 
-    // KPIs
+    // KPIs + Shortlist Star Count
     const ov = analytics.teamDuel.overall;
     kpiCountEl.textContent = `${filtered.length} / ${all.length}`;
     kpiSuccessEl.textContent = `${ov.escapeRate}%`;
     kpiHeavyEl.textContent = `${ov.multiPressRate}%`;
     kpiDistEl.textContent = `${ov.avgMinDistM.toFixed(2)}m · ${ov.avgNetProgM >= 0 ? '+' : ''}${ov.avgNetProgM}m`;
 
+    const totalStarred = all.filter((s) => s.starred).length;
+    starredCountEl.textContent = String(totalStarred);
+    btnStarredOnlyEl.classList.toggle('active', filters.starredOnly);
+    btnStarredOnlyEl.classList.toggle('has-stars', totalStarred > 0);
+
     const hasAnyFilter =
       filters.team !== 'ALL' ||
       filters.period !== 'ALL' ||
+      Boolean(filters.minuteRange) ||
+      filters.starredOnly ||
       filters.pressType !== 'ALL' ||
       filters.pitchZone !== 'ALL' ||
       filters.escapeOutcome !== 'ALL' ||
@@ -1213,7 +1455,11 @@ export function initFullMatchWorkspace({
     const match = getActiveMatch();
     const filtered = getFilteredSlices();
     const analytics = computeFullMatchAnalytics(match, filtered, PRESSING_TAXONOMY);
-    const { teamDuel, crossMatrix, tempo, leaderboard, insights } = analytics;
+    // Keep all 15-min bars visible when user selects a minuteRange so switching windows is 1-click!
+    const tempoPool = match.slices.filter((s) => matchesFilter(s, 'minuteRange'));
+    const tempoAnalytics = computeFullMatchAnalytics(match, tempoPool, PRESSING_TAXONOMY);
+    const { teamDuel, crossMatrix, leaderboard, insights } = analytics;
+    const tempo = tempoAnalytics.tempo;
 
     if (filtered.length === 0) {
       diagnosisViewEl.innerHTML = `<div class="fm-empty-cards">当前筛选条件下暂无命中切片，请重置左侧筛选查看全场诊断报告。</div>`;
@@ -1282,22 +1528,27 @@ export function initFullMatchWorkspace({
       <div class="fm-diag-card">
         <div class="fm-diag-card-head">
           <span>📈 15分钟分段逼抢波峰</span>
-          <span class="fm-diag-sub-legend">柱高=受迫次数 · 红点=被断失误</span>
+          <span class="fm-diag-sub-legend">点击柱条筛选时段 · 红点=失误</span>
         </div>
         <div class="fm-tempo-bars">
           ${tempo.buckets
             .map((b) => {
               const hPct = Math.round((b.homeCount / Math.max(1, tempo.maxCount)) * 100);
               const aPct = Math.round((b.awayCount / Math.max(1, tempo.maxCount)) * 100);
+              const isAct =
+                Array.isArray(filters.minuteRange) &&
+                filters.minuteRange[0] === b.min0 &&
+                filters.minuteRange[1] === b.min1;
               return `
-                <div class="fm-tempo-col" title="${b.label}: 共 ${b.total} 次 (${teamDuel.home.name} ${b.homeCount} / ${teamDuel.away.name} ${b.awayCount}, 丢球 ${b.turnovers})">
+                <button type="button" class="fm-tempo-col${isAct ? ' active' : ''}" data-min0="${b.min0}" data-min1="${b.min1}"
+                  title="${b.label}: 共 ${b.total} 次 (${teamDuel.home.name} ${b.homeCount} / ${teamDuel.away.name} ${b.awayCount}, 丢球 ${b.turnovers}) · 点击筛选该时段">
                   <span class="fm-tempo-val">${b.total > 0 ? b.total : ''}${b.turnovers > 0 ? '<i class="fm-tempo-loss-dot"></i>' : ''}</span>
                   <div class="fm-tempo-stack">
                     ${b.awayCount > 0 ? `<div class="fm-tempo-seg away" style="height:${Math.max(8, aPct)}%;"></div>` : ''}
                     ${b.homeCount > 0 ? `<div class="fm-tempo-seg home" style="height:${Math.max(8, hPct)}%;"></div>` : ''}
                   </div>
                   <span class="fm-tempo-lbl">${b.label}</span>
-                </div>
+                </button>
               `;
             })
             .join('')}
@@ -1371,7 +1622,7 @@ export function initFullMatchWorkspace({
     const leaderHtml = `
       <div class="fm-diag-card">
         <div class="fm-diag-card-head">
-          <span>🏆 球员抗压榜 (Top 6)</span>
+          <span>🏆 球员抗压榜 (Top 7)</span>
           <span class="fm-diag-sub-legend">点击行筛选个人集锦</span>
         </div>
         <table class="fm-leader-table">
@@ -1387,7 +1638,7 @@ export function initFullMatchWorkspace({
           </thead>
           <tbody>
             ${leaderboard
-              .slice(0, 6)
+              .slice(0, 7)
               .map((p, i) => {
                 const dotCol = p.team === teamDuel.home.name ? '#facc15' : '#38bdf8';
                 return `
@@ -1412,6 +1663,20 @@ export function initFullMatchWorkspace({
       <div class="fm-diag-split-row">${duelHtml}${tempoHtml}</div>
       <div class="fm-diag-bottom-split">${matrixHtml}${leaderHtml}</div>
     `;
+
+    // Bind 15-Minute Tempo Wave Bar Clicks -> Instant Time-Window Filter!
+    diagnosisViewEl.querySelectorAll('.fm-tempo-col').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        const min0 = Number(btn.dataset.min0);
+        const min1 = Number(btn.dataset.min1);
+        if (Array.isArray(filters.minuteRange) && filters.minuteRange[0] === min0 && filters.minuteRange[1] === min1) {
+          filters.minuteRange = null;
+        } else {
+          filters.minuteRange = [min0, min1];
+        }
+        renderAll();
+      });
+    });
 
     // Bind Cross-Matrix Cell Clicks -> Instant Cross-Filter!
     diagnosisViewEl.querySelectorAll('.fm-matrix-cell').forEach((btn) => {
@@ -1449,11 +1714,19 @@ export function initFullMatchWorkspace({
       detTitleEl.textContent = '当前筛选条件下暂无命中切片，请放宽或重置左侧四维筛选器';
       detMetricsEl.textContent = '';
       detProgEl.textContent = '—';
+      editJerseyEl.value = '';
+      editPlayerEl.value = '';
       editSummaryEl.value = '';
+      btnStarSliceEl.textContent = '☆';
+      btnStarSliceEl.classList.remove('starred');
+      btnStarSliceEl.disabled = true;
       btnSendTo3DEl.disabled = true;
       btnDeleteSliceEl.disabled = true;
       return;
     }
+    btnStarSliceEl.disabled = false;
+    btnStarSliceEl.textContent = slice.starred ? '★' : '☆';
+    btnStarSliceEl.classList.toggle('starred', Boolean(slice.starred));
     btnSendTo3DEl.disabled = false;
     btnDeleteSliceEl.disabled = match.slices.length <= 1;
 
@@ -1468,6 +1741,8 @@ export function initFullMatchWorkspace({
     detProgEl.classList.toggle('neg', prog < 0 || slice.escapeOutcome === 'turnover_loss');
     detMetricsEl.textContent = `${slice.presserCount}人压迫 · 贴防 ${slice.minDefDistM}m · 强度 ${slice.intensity}% · [${slice.pitchXY[0]}, ${slice.pitchXY[1]}]`;
     detTitleEl.textContent = `#${slice.jerseyNumber || '8'} ${slice.playerName} (${slice.positionLabel}) — ${pMeta?.label || ''} × ${oMeta?.label || ''}`;
+    editJerseyEl.value = slice.jerseyNumber || '';
+    editPlayerEl.value = slice.playerName || '';
     editSummaryEl.value = slice.summary || `${zMeta?.label || ''}`;
 
     editSelects.pressType.value = slice.pressType;
@@ -1512,7 +1787,7 @@ export function initFullMatchWorkspace({
       }
     }
 
-    const homeTeam = match.homeTeamZh;
+    const homeTeam = getOrderedTeams(match)[0] || match.homeTeamZh;
     let html = '';
     for (const grp of groups) {
       const sharePct = Math.round((grp.list.length / filtered.length) * 100);
@@ -1536,10 +1811,11 @@ export function initFullMatchWorkspace({
           : '';
 
         html += `
-          <div class="fm-slice-card${isAct ? ' active' : ''}" data-slice-id="${escapeHtml(s.id)}">
+          <div class="fm-slice-card${isAct ? ' active' : ''}${s.starred ? ' is-starred' : ''}" data-slice-id="${escapeHtml(s.id)}">
             ${thumbHtml}
             <div class="fm-card-body">
               <div class="fm-card-top">
+                <button type="button" class="fm-card-star${s.starred ? ' starred' : ''}" data-slice-id="${escapeHtml(s.id)}" title="收入/移出精选剪辑包">${s.starred ? '★' : '☆'}</button>
                 <span class="fm-card-team-dot" style="background:${teamDotCol};" title="${escapeHtml(s.team)}"></span>
                 <span class="fm-card-clock">#${String(s.index).padStart(2, '0')} · ${escapeHtml(s.clock)}</span>
                 <span class="fm-card-player">#${escapeHtml(s.jerseyNumber || '8')} ${escapeHtml(s.playerName.split(' ')[0])}</span>
@@ -1566,8 +1842,15 @@ export function initFullMatchWorkspace({
 
     cardsScrollEl.querySelectorAll('.fm-slice-card').forEach((cardEl) => {
       cardEl.addEventListener('click', (e) => {
-        if (e.target.closest('.act-3d')) return;
+        if (e.target.closest('.act-3d') || e.target.closest('.fm-card-star')) return;
         selectSliceById(cardEl.dataset.sliceId);
+      });
+    });
+
+    cardsScrollEl.querySelectorAll('.fm-card-star').forEach((btn) => {
+      btn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        toggleSliceStar(btn.dataset.sliceId);
       });
     });
 
@@ -1600,9 +1883,11 @@ export function initFullMatchWorkspace({
   }
 
   // ==========================================================================
-  // Interactive Dual-Team 90/120-Minute Timeline Canvas
+  // Interactive Dual-Team 90/120-Minute Timeline Canvas (Click + Drag-Brush Range)
   // ==========================================================================
   let timelineHitPoints = []; // [{ x, y, id, slice }]
+  let timelineGeom = { padL: 54, padT: 8, plotW: 600, plotH: 48, maxSec: 5400 };
+  let suppressNextTimelineClick = false;
 
   function drawTimelineCanvas() {
     const rect = timelineCanvas.parentElement.getBoundingClientRect();
@@ -1623,9 +1908,10 @@ export function initFullMatchWorkspace({
     const filteredSet = new Set(filtered.map((s) => s.id));
     const curActive = getActiveSlice();
 
-    const distinctTeams = Array.from(new Set(match.slices.map((s) => s.team).filter(Boolean)));
+    const distinctTeams = getOrderedTeams(match);
     const dualTeamSplit = distinctTeams.length >= 2 && filters.team === 'ALL';
-    const homeTeamName = match.homeTeamZh || distinctTeams[0];
+    const homeTeamName = distinctTeams[0] || match.homeTeamZh;
+    const awayTeamName = distinctTeams[1] || match.awayTeamZh;
 
     const maxSec = Math.max(
       match.totalMinutes * 60,
@@ -1641,9 +1927,37 @@ export function initFullMatchWorkspace({
     const plotW = W - padL - padR;
     const plotH = H - padT - padB;
     const midY = padT + plotH * 0.5;
+    timelineGeom = { padL, padT, plotW, plotH, maxSec };
 
     ctx.fillStyle = 'rgba(13, 21, 33, 0.88)';
     ctx.fillRect(padL, padT, plotW, plotH);
+
+    // Highlight active minuteRange or live drag-brush selection window
+    let selX0 = null;
+    let selX1 = null;
+    if (timelineBrushState && timelineBrushState.dragging) {
+      selX0 = clamp(Math.min(timelineBrushState.startX, timelineBrushState.curX), padL, padL + plotW);
+      selX1 = clamp(Math.max(timelineBrushState.startX, timelineBrushState.curX), padL, padL + plotW);
+    } else if (Array.isArray(filters.minuteRange) && filters.minuteRange.length === 2) {
+      const u0 = clamp((filters.minuteRange[0] * 60) / maxSec, 0, 1);
+      const u1 = clamp((filters.minuteRange[1] * 60) / maxSec, 0, 1);
+      selX0 = padL + u0 * plotW;
+      selX1 = padL + u1 * plotW;
+    }
+    if (selX0 !== null && selX1 !== null && selX1 - selX0 >= 2) {
+      ctx.fillStyle = 'rgba(250, 204, 21, 0.14)';
+      ctx.fillRect(selX0, padT, selX1 - selX0, plotH);
+      ctx.strokeStyle = 'rgba(250, 204, 21, 0.85)';
+      ctx.lineWidth = 1.4;
+      ctx.beginPath();
+      ctx.moveTo(selX0, padT);
+      ctx.lineTo(selX0, padT + plotH);
+      ctx.moveTo(selX1, padT);
+      ctx.lineTo(selX1, padT + plotH);
+      ctx.stroke();
+      ctx.fillStyle = 'rgba(250, 204, 21, 0.75)';
+      ctx.fillRect(selX0, padT, selX1 - selX0, 2);
+    }
 
     // Dual-team center horizon line & team labels
     if (dualTeamSplit) {
@@ -1659,7 +1973,7 @@ export function initFullMatchWorkspace({
       ctx.fillStyle = '#facc15';
       ctx.fillText((homeTeamName || '主队').slice(0, 4), padL - 5, padT + plotH * 0.28 + 3);
       ctx.fillStyle = '#38bdf8';
-      ctx.fillText((match.awayTeamZh || distinctTeams[1] || '客队').slice(0, 4), padL - 5, padT + plotH * 0.78 + 3);
+      ctx.fillText((awayTeamName || '客队').slice(0, 4), padL - 5, padT + plotH * 0.78 + 3);
     }
 
     const tickStep = useSecondsAxis ? 15 : 15 * 60;
@@ -1756,6 +2070,12 @@ export function initFullMatchWorkspace({
         ctx.beginPath();
         ctx.arc(x, y, 8.8, 0, Math.PI * 2);
         ctx.fill();
+      } else if (s.starred) {
+        ctx.strokeStyle = 'rgba(250, 204, 21, 0.9)';
+        ctx.lineWidth = 1.25;
+        ctx.beginPath();
+        ctx.arc(x, y, 6.2, 0, Math.PI * 2);
+        ctx.stroke();
       }
 
       ctx.fillStyle = col;
@@ -1783,7 +2103,20 @@ export function initFullMatchWorkspace({
     return best;
   }
 
+  timelineCanvas.addEventListener('mousedown', (e) => {
+    if (e.button !== 0) return;
+    const rect = timelineCanvas.getBoundingClientRect();
+    const mx = e.clientX - rect.left;
+    if (mx >= timelineGeom.padL && mx <= timelineGeom.padL + timelineGeom.plotW) {
+      timelineBrushState = { startX: mx, curX: mx, dragging: false };
+    }
+  });
+
   timelineCanvas.addEventListener('click', (e) => {
+    if (suppressNextTimelineClick) {
+      suppressNextTimelineClick = false;
+      return;
+    }
     const rect = timelineCanvas.getBoundingClientRect();
     const best = findNearestTimelineHit(e.clientX - rect.left, e.clientY - rect.top);
     if (best) selectSliceById(best.id, true);
@@ -1793,6 +2126,23 @@ export function initFullMatchWorkspace({
     const rect = timelineCanvas.getBoundingClientRect();
     const mx = e.clientX - rect.left;
     const my = e.clientY - rect.top;
+
+    if (timelineBrushState) {
+      timelineBrushState.curX = clamp(mx, timelineGeom.padL, timelineGeom.padL + timelineGeom.plotW);
+      if (Math.abs(timelineBrushState.curX - timelineBrushState.startX) > 10) {
+        timelineBrushState.dragging = true;
+        const x0 = Math.min(timelineBrushState.startX, timelineBrushState.curX);
+        const x1 = Math.max(timelineBrushState.startX, timelineBrushState.curX);
+        const m0 = Math.max(0, Math.floor(((x0 - timelineGeom.padL) / Math.max(1, timelineGeom.plotW)) * (timelineGeom.maxSec / 60)));
+        const m1 = Math.max(m0 + 1, Math.ceil(((x1 - timelineGeom.padL) / Math.max(1, timelineGeom.plotW)) * (timelineGeom.maxSec / 60)));
+        timelineTooltipEl.textContent = `框选筛选时间段：${m0}' – ${m1}'（松手应用）`;
+        timelineTooltipEl.style.display = 'block';
+        timelineTooltipEl.style.left = `${clamp((x0 + x1) * 0.5, 110, rect.width - 120)}px`;
+        drawTimelineCanvas();
+        return;
+      }
+    }
+
     const best = findNearestTimelineHit(mx, my);
     if (best) {
       if (hoveredTimelineSliceId !== best.id) {
@@ -1801,7 +2151,7 @@ export function initFullMatchWorkspace({
       }
       const s = best.slice;
       const oLbl = PRESSING_TAXONOMY.escapeOutcome.items[s.escapeOutcome]?.label || '';
-      timelineTooltipEl.textContent = `[${s.clock}] ${s.team} #${s.jerseyNumber} ${s.playerName.split(' ')[0]} · ${oLbl} (${s.minDefDistM}m)`;
+      timelineTooltipEl.textContent = `[${s.clock}] ${s.team} #${s.jerseyNumber} ${s.playerName.split(' ')[0]} · ${oLbl} (${s.minDefDistM}m)${s.starred ? ' ★' : ''}`;
       timelineTooltipEl.style.display = 'block';
       const tipX = clamp(best.x, 120, rect.width - 140);
       timelineTooltipEl.style.left = `${tipX}px`;
@@ -1814,14 +2164,34 @@ export function initFullMatchWorkspace({
     }
   });
 
+  window.addEventListener('mouseup', () => {
+    if (!timelineBrushState) return;
+    const st = timelineBrushState;
+    timelineBrushState = null;
+    if (st.dragging) {
+      suppressNextTimelineClick = true;
+      const x0 = Math.min(st.startX, st.curX);
+      const x1 = Math.max(st.startX, st.curX);
+      const totalMins = timelineGeom.maxSec / 60;
+      const m0 = Math.max(0, Math.floor(((x0 - timelineGeom.padL) / Math.max(1, timelineGeom.plotW)) * totalMins));
+      let m1 = Math.max(m0 + 2, Math.ceil(((x1 - timelineGeom.padL) / Math.max(1, timelineGeom.plotW)) * totalMins));
+      if (x1 >= timelineGeom.padL + timelineGeom.plotW - 4) m1 = Math.ceil(totalMins) + 2;
+      filters.minuteRange = [m0, m1];
+      timelineTooltipEl.style.display = 'none';
+      renderAll();
+    }
+  });
+
   timelineCanvas.addEventListener('mouseleave', () => {
-    hoveredTimelineSliceId = null;
-    timelineTooltipEl.style.display = 'none';
-    drawTimelineCanvas();
+    if (!timelineBrushState?.dragging) {
+      hoveredTimelineSliceId = null;
+      timelineTooltipEl.style.display = 'none';
+      drawTimelineCanvas();
+    }
   });
 
   // ==========================================================================
-  // Interactive 105m × 68m Tactical Pitch Canvas (Heat+Zone HUD & 360° Shadows)
+  // Interactive 105m × 68m Tactical Pitch Canvas (Heat+Zone HUD & 2.2x 360° Board)
   // ==========================================================================
   let pitchHitPoints = []; // [{ x, y, id }]
   let pitchZoneHitBoxes = []; // [{ x, y, w, h, zoneKey }]
@@ -1853,23 +2223,78 @@ export function initFullMatchWorkspace({
     }
     const ox = (W - pw) * 0.5;
     const oy = (H - ph) * 0.5;
-    const toPx = (xm, ym) => [ox + (xm / 105) * pw, oy + (ym / 68) * ph];
-
-    // Pitch turf with mowing stripes
-    ctx.fillStyle = '#0f241d';
-    ctx.fillRect(ox, oy, pw, ph);
-    const stripes = 10;
-    for (let i = 0; i < stripes; i++) {
-      if (i % 2 === 0) {
-        ctx.fillStyle = 'rgba(22, 62, 44, 0.30)';
-        ctx.fillRect(ox + (i / stripes) * pw, oy, pw / stripes, ph);
-      }
-    }
 
     const match = getActiveMatch();
     const filtered = getFilteredSlices();
     const curActive = getActiveSlice();
     const analytics = computeFullMatchAnalytics(match, filtered, PRESSING_TAXONOMY);
+
+    // Compute Tactical Viewport: Full 105m×68m OR Smart 2.2x Zoomed Crop in `pitch_360`
+    const isZoomed360 = stageMode === 'pitch_360' && zoom360Tactical && Boolean(curActive);
+    let vx0 = 0;
+    let vy0 = 0;
+    let vw = 105;
+    let vh = 68;
+    if (isZoomed360) {
+      vw = 46.5; // ~2.26x tactical focus preserving 105:68 aspect
+      vh = vw / aspect;
+      const hxM = curActive.pitchXY[0];
+      const hyM = curActive.pitchXY[1];
+      const clusterPts = [[hxM, hyM], [curActive.exitXY[0], curActive.exitXY[1]]];
+      for (const op of (curActive.freezeOpps || []).slice(0, 4)) {
+        if (Math.hypot(op.x - hxM, op.y - hyM) <= 18) clusterPts.push([op.x, op.y]);
+      }
+      for (const m of (curActive.freezeMates || []).slice(0, 4)) {
+        if (Math.hypot(m.x - hxM, m.y - hyM) <= 20) clusterPts.push([m.x, m.y]);
+      }
+      const avgX = clusterPts.reduce((a, p) => a + p[0], 0) / clusterPts.length;
+      const avgY = clusterPts.reduce((a, p) => a + p[1], 0) / clusterPts.length;
+      const focusX = hxM * 0.72 + avgX * 0.28;
+      const focusY = hyM * 0.72 + avgY * 0.28;
+      vx0 = clamp(focusX - vw * 0.5, 0, 105 - vw);
+      vy0 = clamp(focusY - vh * 0.5, 0, 68 - vh);
+    }
+
+    const toPx = (xm, ym) => [ox + ((xm - vx0) / vw) * pw, oy + ((ym - vy0) / vh) * ph];
+    const mToPx = (meters) => (meters / vw) * pw;
+
+    // Clip turf + pitch markings + tactical overlays cleanly inside the board rectangle
+    ctx.save();
+    ctx.beginPath();
+    ctx.rect(ox, oy, pw, ph);
+    ctx.clip();
+
+    // Pitch turf with real 10.5m mowing stripes
+    ctx.fillStyle = '#0f241d';
+    ctx.fillRect(ox, oy, pw, ph);
+    for (let i = 0; i < 10; i++) {
+      if (i % 2 === 0) {
+        const [sx0] = toPx(i * 10.5, 0);
+        const [sx1] = toPx((i + 1) * 10.5, 0);
+        ctx.fillStyle = 'rgba(22, 62, 44, 0.30)';
+        ctx.fillRect(sx0, oy, sx1 - sx0, ph);
+      }
+    }
+
+    // Subtle 5m tactical scale grid in zoomed 360° mode
+    if (isZoomed360) {
+      ctx.strokeStyle = 'rgba(148, 163, 184, 0.085)';
+      ctx.lineWidth = 0.8;
+      for (let gx = Math.ceil(vx0 / 5) * 5; gx <= vx0 + vw; gx += 5) {
+        const [px] = toPx(gx, 0);
+        ctx.beginPath();
+        ctx.moveTo(px, oy);
+        ctx.lineTo(px, oy + ph);
+        ctx.stroke();
+      }
+      for (let gy = Math.ceil(vy0 / 5) * 5; gy <= vy0 + vh; gy += 5) {
+        const [, py] = toPx(0, gy);
+        ctx.beginPath();
+        ctx.moveTo(ox, py);
+        ctx.lineTo(ox + pw, py);
+        ctx.stroke();
+      }
+    }
 
     // Clickable Tactical Zone Bands Overlay in `pitch_heat` mode
     pitchZoneHitBoxes = [];
@@ -1918,24 +2343,43 @@ export function initFullMatchWorkspace({
       }
     }
 
-    // Standard FIFA pitch lines
+    // Real FIFA pitch lines (works identically at 1.0x full-pitch and 2.2x zoomed crop!)
     ctx.strokeStyle = 'rgba(226, 232, 240, 0.42)';
-    ctx.lineWidth = 1.25;
-    ctx.strokeRect(ox, oy, pw, ph);
+    ctx.lineWidth = isZoomed360 ? 1.6 : 1.25;
+    const [p0x, p0y] = toPx(0, 0);
+    const [p1x, p1y] = toPx(105, 68);
+    ctx.strokeRect(p0x, p0y, p1x - p0x, p1y - p0y);
+
     const [midX, midY] = toPx(52.5, 34);
     ctx.beginPath();
-    ctx.moveTo(midX, oy);
-    ctx.lineTo(midX, oy + ph);
+    ctx.moveTo(midX, p0y);
+    ctx.lineTo(midX, p1y);
     ctx.stroke();
     ctx.beginPath();
-    ctx.arc(midX, midY, (9.15 / 105) * pw, 0, Math.PI * 2);
+    ctx.arc(midX, midY, mToPx(9.15), 0, Math.PI * 2);
     ctx.stroke();
 
     const [lpX1, lpY0] = toPx(16.5, (68 - 40.3) / 2);
     const [, lpY1] = toPx(16.5, (68 + 40.3) / 2);
-    ctx.strokeRect(ox, lpY0, lpX1 - ox, lpY1 - lpY0);
+    ctx.strokeRect(p0x, lpY0, lpX1 - p0x, lpY1 - lpY0);
     const [rpX0] = toPx(105 - 16.5, 0);
-    ctx.strokeRect(rpX0, lpY0, ox + pw - rpX0, lpY1 - lpY0);
+    ctx.strokeRect(rpX0, lpY0, p1x - rpX0, lpY1 - lpY0);
+
+    if (isZoomed360) {
+      // 6-yard boxes & penalty spots for rich spatial reference when zoomed
+      const [l6X1, l6Y0] = toPx(5.5, (68 - 18.32) / 2);
+      const [, l6Y1] = toPx(5.5, (68 + 18.32) / 2);
+      ctx.strokeRect(p0x, l6Y0, l6X1 - p0x, l6Y1 - l6Y0);
+      const [r6X0] = toPx(105 - 5.5, 0);
+      ctx.strokeRect(r6X0, l6Y0, p1x - r6X0, l6Y1 - l6Y0);
+      for (const spotX of [11, 94]) {
+        const [sx, sy] = toPx(spotX, 34);
+        ctx.fillStyle = 'rgba(226, 232, 240, 0.55)';
+        ctx.beginPath();
+        ctx.arc(sx, sy, 2.5, 0, Math.PI * 2);
+        ctx.fill();
+      }
+    }
 
     pitchHitPoints = [];
 
@@ -1943,7 +2387,7 @@ export function initFullMatchWorkspace({
     if (stageMode === 'pitch_heat') {
       for (const s of filtered) {
         const [sx, sy] = toPx(s.pitchXY[0], s.pitchXY[1]);
-        const rad = (7.5 / 105) * pw;
+        const rad = mToPx(7.5);
         const grad = ctx.createRadialGradient(sx, sy, 1, sx, sy, rad);
         const baseCol = s.escapeOutcome === 'turnover_loss' ? '239, 68, 68' : '56, 189, 248';
         grad.addColorStop(0, `rgba(${baseCol}, 0.22)`);
@@ -1977,7 +2421,9 @@ export function initFullMatchWorkspace({
       }
     }
 
-    // Active Slice 360° Tactical Freeze-Frame (Enhanced with Cover-Shadow Cones & Open/Blocked Pass Lanes in `pitch_360`!)
+    // Active Slice 360° Tactical Freeze-Frame
+    let openLaneCount = 0;
+    let blockedLaneCount = 0;
     if (curActive) {
       const [hx, hy] = toPx(curActive.pitchXY[0], curActive.pitchXY[1]);
       const [ex, ey] = toPx(curActive.exitXY[0], curActive.exitXY[1]);
@@ -1991,41 +2437,74 @@ export function initFullMatchWorkspace({
         for (const op of pressers) {
           const [px, py] = toPx(op.x, op.y);
           const ang = Math.atan2(py - hy, px - hx);
-          const coneLen = (11.5 / 105) * pw;
-          const spread = 0.29;
+          const coneLen = mToPx(isZoomed360 ? 13.5 : 11.5);
+          const spread = 0.28;
           const grad = ctx.createRadialGradient(px, py, 2, px, py, coneLen);
-          grad.addColorStop(0, 'rgba(239, 68, 68, 0.36)');
-          grad.addColorStop(1, 'rgba(239, 68, 68, 0.02)');
+          grad.addColorStop(0, 'rgba(239, 68, 68, 0.42)');
+          grad.addColorStop(0.55, 'rgba(239, 68, 68, 0.16)');
+          grad.addColorStop(1, 'rgba(239, 68, 68, 0.015)');
           ctx.fillStyle = grad;
           ctx.beginPath();
           ctx.moveTo(px, py);
           ctx.arc(px, py, coneLen, ang - spread, ang + spread);
           ctx.closePath();
           ctx.fill();
-          ctx.strokeStyle = 'rgba(248, 113, 113, 0.32)';
-          ctx.lineWidth = 0.9;
+          ctx.strokeStyle = 'rgba(248, 113, 113, 0.42)';
+          ctx.lineWidth = isZoomed360 ? 1.15 : 0.9;
           ctx.stroke();
         }
       }
 
-      // 4.5m Pressing Danger Ring
-      const pressRad = (4.5 / 105) * pw;
-      ctx.fillStyle = 'rgba(239, 68, 68, 0.13)';
-      ctx.strokeStyle = 'rgba(248, 113, 113, 0.65)';
-      ctx.lineWidth = 1.2;
-      ctx.setLineDash([3, 3]);
-      ctx.beginPath();
-      ctx.arc(hx, hy, pressRad, 0, Math.PI * 2);
-      ctx.fill();
-      ctx.stroke();
-      ctx.setLineDash([]);
+      // Concentric Pressure Rings: 5.0m (合拢圈) + 2.5m (贴防高压圈) in 360° mode, or 4.5m in Heat mode
+      if (stageMode === 'pitch_360') {
+        const r5 = mToPx(5.0);
+        ctx.fillStyle = 'rgba(239, 68, 68, 0.075)';
+        ctx.strokeStyle = 'rgba(248, 113, 113, 0.48)';
+        ctx.lineWidth = 1.1;
+        ctx.setLineDash([4, 4]);
+        ctx.beginPath();
+        ctx.arc(hx, hy, r5, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.stroke();
+
+        const r25 = mToPx(2.5);
+        ctx.fillStyle = 'rgba(239, 68, 68, 0.12)';
+        ctx.strokeStyle = 'rgba(251, 113, 133, 0.78)';
+        ctx.lineWidth = 1.25;
+        ctx.setLineDash([3, 2]);
+        ctx.beginPath();
+        ctx.arc(hx, hy, r25, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.stroke();
+        ctx.setLineDash([]);
+
+        if (isZoomed360) {
+          ctx.font = '600 9px "JetBrains Mono", monospace';
+          ctx.textAlign = 'left';
+          ctx.fillStyle = 'rgba(254, 202, 202, 0.78)';
+          ctx.fillText('2.5m', hx + r25 * 0.72 + 2, hy + r25 * 0.72 + 2);
+          ctx.fillStyle = 'rgba(248, 113, 113, 0.65)';
+          ctx.fillText('5.0m', hx + r5 * 0.72 + 2, hy + r5 * 0.72 + 2);
+        }
+      } else {
+        const pressRad = mToPx(4.5);
+        ctx.fillStyle = 'rgba(239, 68, 68, 0.13)';
+        ctx.strokeStyle = 'rgba(248, 113, 113, 0.65)';
+        ctx.lineWidth = 1.2;
+        ctx.setLineDash([3, 3]);
+        ctx.beginPath();
+        ctx.arc(hx, hy, pressRad, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.stroke();
+        ctx.setLineDash([]);
+      }
 
       // Teammates & Open vs Blocked Passing Lanes
       const mates = (curActive.freezeMates || []).slice(0, stageMode === 'pitch_360' ? 9 : 4);
-      let openLaneCount = 0;
-      let blockedLaneCount = 0;
+      let badgeDrawnCount = 0;
       for (const m of mates) {
         const [mx, my] = toPx(m.x, m.y);
+        const passDistM = Math.hypot(m.x - curActive.pitchXY[0], m.y - curActive.pitchXY[1]);
         const blocked =
           stageMode === 'pitch_360' &&
           isPassLaneBlockedByCoverShadow(curActive.pitchXY[0], curActive.pitchXY[1], m.x, m.y, oppsAll);
@@ -2035,11 +2514,11 @@ export function initFullMatchWorkspace({
         ctx.strokeStyle =
           stageMode === 'pitch_360'
             ? blocked
-              ? 'rgba(248, 113, 113, 0.55)'
-              : 'rgba(52, 211, 153, 0.72)'
+              ? 'rgba(248, 113, 113, 0.58)'
+              : 'rgba(52, 211, 153, 0.76)'
             : 'rgba(56, 189, 248, 0.30)';
-        ctx.lineWidth = stageMode === 'pitch_360' ? 1.5 : 1.0;
-        ctx.setLineDash(blocked ? [3, 3] : [5, 3]);
+        ctx.lineWidth = stageMode === 'pitch_360' ? (isZoomed360 ? 1.85 : 1.5) : 1.0;
+        ctx.setLineDash(blocked ? [3, 3] : [6, 3]);
         ctx.beginPath();
         ctx.moveTo(hx, hy);
         ctx.lineTo(mx, my);
@@ -2050,114 +2529,219 @@ export function initFullMatchWorkspace({
           const midLx = (hx + mx) * 0.5;
           const midLy = (hy + my) * 0.5;
           ctx.strokeStyle = '#ef4444';
-          ctx.lineWidth = 1.6;
+          ctx.lineWidth = 1.8;
           ctx.beginPath();
-          ctx.moveTo(midLx - 3.5, midLy - 3.5);
-          ctx.lineTo(midLx + 3.5, midLy + 3.5);
-          ctx.moveTo(midLx + 3.5, midLy - 3.5);
-          ctx.lineTo(midLx - 3.5, midLy + 3.5);
+          ctx.moveTo(midLx - 4, midLy - 4);
+          ctx.lineTo(midLx + 4, midLy + 4);
+          ctx.moveTo(midLx + 4, midLy - 4);
+          ctx.lineTo(midLx - 4, midLy + 4);
           ctx.stroke();
         }
 
+        const mateR = isZoomed360 ? 6.2 : 4.4;
         ctx.fillStyle = stageMode === 'pitch_360' && !blocked ? '#34d399' : '#38bdf8';
         ctx.beginPath();
-        ctx.arc(mx, my, 4.4, 0, Math.PI * 2);
+        ctx.arc(mx, my, mateR, 0, Math.PI * 2);
         ctx.fill();
         ctx.strokeStyle = '#0f172a';
-        ctx.lineWidth = 1;
+        ctx.lineWidth = 1.3;
         ctx.stroke();
+
+        // Explicit pass-lane badge near visible teammates in 2.2x zoomed 360° mode
+        const inView = mx > ox + 28 && mx < ox + pw - 28 && my > oy + 22 && my < oy + ph - 32;
+        if (isZoomed360 && inView && badgeDrawnCount < 5) {
+          badgeDrawnCount++;
+          const lbl = blocked ? '遮蔽 ✕' : `开放 ${passDistM.toFixed(1)}m`;
+          ctx.font = '600 9.5px "Inter", "Noto Sans SC", monospace';
+          const bw = ctx.measureText(lbl).width + 10;
+          const bx = clamp(mx - bw * 0.5, ox + 4, ox + pw - bw - 4);
+          const by = my < hy ? my - 23 : my + 10;
+          ctx.fillStyle = blocked ? 'rgba(69, 10, 10, 0.86)' : 'rgba(6, 46, 36, 0.86)';
+          ctx.strokeStyle = blocked ? 'rgba(248, 113, 113, 0.65)' : 'rgba(52, 211, 153, 0.72)';
+          ctx.lineWidth = 1;
+          ctx.fillRect(bx, by, bw, 15);
+          ctx.strokeRect(bx, by, bw, 15);
+          ctx.fillStyle = blocked ? '#fecaca' : '#a7f3d0';
+          ctx.textAlign = 'center';
+          ctx.fillText(lbl, bx + bw * 0.5, by + 10.8);
+        }
       }
 
-      // Opponents
+      // Opponents + Closing-In Pressure Arrows
+      const escAng = Math.atan2(ey - hy, ex - hx);
       const opps = oppsAll.slice(0, stageMode === 'pitch_360' ? 10 : 5);
       opps.forEach((op, idx) => {
         const [px, py] = toPx(op.x, op.y);
         const isPresser = idx < curActive.presserCount;
+        const closingAng = Math.atan2(hy - py, hx - px);
+
         if (isPresser) {
-          ctx.strokeStyle = 'rgba(248, 113, 113, 0.78)';
-          ctx.lineWidth = 1.4;
+          ctx.strokeStyle = 'rgba(248, 113, 113, 0.84)';
+          ctx.lineWidth = isZoomed360 ? 1.8 : 1.4;
           ctx.beginPath();
           ctx.moveTo(px, py);
           ctx.lineTo(hx, hy);
           ctx.stroke();
+
+          // Directional closing arrow midway toward ball carrier
+          if (isZoomed360 && Math.hypot(hx - px, hy - py) > 22) {
+            const ax = px + (hx - px) * 0.52;
+            const ay = py + (hy - py) * 0.52;
+            ctx.fillStyle = '#f87171';
+            ctx.beginPath();
+            ctx.moveTo(ax, ay);
+            ctx.lineTo(ax - Math.cos(closingAng - 0.5) * 6.5, ay - Math.sin(closingAng - 0.5) * 6.5);
+            ctx.lineTo(ax - Math.cos(closingAng + 0.5) * 6.5, ay - Math.sin(closingAng + 0.5) * 6.5);
+            ctx.closePath();
+            ctx.fill();
+          }
         }
+
+        const oppR = isPresser ? (isZoomed360 ? 7.2 : 5.0) : (isZoomed360 ? 5.2 : 3.8);
         ctx.fillStyle = isPresser ? '#ef4444' : '#94a3b8';
         ctx.beginPath();
-        ctx.arc(px, py, isPresser ? 5.0 : 3.8, 0, Math.PI * 2);
+        ctx.arc(px, py, oppR, 0, Math.PI * 2);
         ctx.fill();
         ctx.strokeStyle = '#ffffff';
-        ctx.lineWidth = 1;
+        ctx.lineWidth = isZoomed360 ? 1.4 : 1;
         ctx.stroke();
 
-        // Exact distance label in 360° mode (offset away from ball carrier so it never collides with callout)
+        if (isZoomed360 && isPresser) {
+          ctx.font = '700 8.5px "JetBrains Mono", monospace';
+          ctx.fillStyle = '#ffffff';
+          ctx.textAlign = 'center';
+          ctx.fillText(`D${idx + 1}`, px, py + 3);
+        }
+
+        // Exact distance label in 360° mode (dark pill offset away from ball carrier & deflected clear of escape vector)
         if (stageMode === 'pitch_360' && isPresser && op.distM) {
-          const awayAng = Math.atan2(py - hy, px - hx);
-          const lx = px + Math.cos(awayAng) * 14;
-          const ly = py + Math.sin(awayAng) * 14 + 3;
-          ctx.font = '600 9.5px "JetBrains Mono", monospace';
+          let lblAng = Math.atan2(py - hy, px - hx);
+          const diffEsc = Math.atan2(Math.sin(lblAng - escAng), Math.cos(lblAng - escAng));
+          if (isZoomed360 && Math.abs(diffEsc) < 0.45) {
+            lblAng += diffEsc >= 0 ? 0.72 : -0.72;
+          }
+          const distOff = isZoomed360 ? 25 : 14;
+          const lx = px + Math.cos(lblAng) * distOff;
+          const ly = py + Math.sin(lblAng) * distOff;
+          const dTxt = `${op.distM}m`;
+          ctx.font = '700 9.5px "JetBrains Mono", monospace';
+          if (isZoomed360) {
+            const dw = ctx.measureText(dTxt).width + 8;
+            ctx.fillStyle = 'rgba(15, 23, 42, 0.88)';
+            ctx.strokeStyle = 'rgba(248, 113, 113, 0.65)';
+            ctx.lineWidth = 0.9;
+            ctx.fillRect(lx - dw * 0.5, ly - 7.5, dw, 14);
+            ctx.strokeRect(lx - dw * 0.5, ly - 7.5, dw, 14);
+          }
           ctx.fillStyle = '#fecaca';
           ctx.textAlign = 'center';
-          ctx.fillText(`${op.distM}m`, lx, ly);
+          ctx.fillText(dTxt, lx, ly + 3);
         }
       });
 
       // Active Escape / Turnover Vector Arrow
       const vecCol = curActive.escapeOutcome === 'turnover_loss' ? '#ef4444' : '#facc15';
       ctx.strokeStyle = vecCol;
-      ctx.lineWidth = 2.6;
+      ctx.lineWidth = isZoomed360 ? 3.2 : 2.6;
       ctx.beginPath();
       ctx.moveTo(hx, hy);
       ctx.lineTo(ex, ey);
       ctx.stroke();
 
-      const ang = Math.atan2(ey - hy, ex - hx);
+      const ang = escAng;
+      const arrowLen = isZoomed360 ? 11 : 8;
       ctx.fillStyle = vecCol;
       ctx.beginPath();
       ctx.moveTo(ex, ey);
-      ctx.lineTo(ex - Math.cos(ang - 0.45) * 8, ey - Math.sin(ang - 0.45) * 8);
-      ctx.lineTo(ex - Math.cos(ang + 0.45) * 8, ey - Math.sin(ang + 0.45) * 8);
+      ctx.lineTo(ex - Math.cos(ang - 0.45) * arrowLen, ey - Math.sin(ang - 0.45) * arrowLen);
+      ctx.lineTo(ex - Math.cos(ang + 0.45) * arrowLen, ey - Math.sin(ang + 0.45) * arrowLen);
       ctx.closePath();
       ctx.fill();
 
       // Active Ball Carrier Node
+      const heroR = isZoomed360 ? 9.5 : 6.4;
       ctx.fillStyle = '#facc15';
       ctx.beginPath();
-      ctx.arc(hx, hy, 6.4, 0, Math.PI * 2);
+      ctx.arc(hx, hy, heroR, 0, Math.PI * 2);
       ctx.fill();
       ctx.strokeStyle = '#0f172a';
       ctx.lineWidth = 2;
       ctx.stroke();
 
-      // Callout Pill
-      const prog = sliceNetProgressionM(curActive);
-      const tagText = `[${curActive.clock}] #${curActive.jerseyNumber || '8'} ${curActive.playerName.split(' ')[0]} · 贴防${curActive.minDefDistM}m · ΔX ${prog >= 0 ? '+' : ''}${prog}m`;
-      ctx.font = '600 10.5px "Inter", "Noto Sans SC", sans-serif';
-      const tw = ctx.measureText(tagText).width + 12;
-      const tx = clamp(hx - tw * 0.5, ox + 4, ox + pw - tw - 4);
-      const pillLift = stageMode === 'pitch_360' ? 34 : 25;
-      const ty = hy > oy + pillLift + 6 ? hy - pillLift : hy + 14;
-      ctx.fillStyle = 'rgba(10, 16, 28, 0.90)';
-      ctx.strokeStyle = 'rgba(250, 204, 21, 0.78)';
-      ctx.lineWidth = 1;
-      ctx.fillRect(tx, ty, tw, 18);
-      ctx.strokeRect(tx, ty, tw, 18);
-      ctx.fillStyle = '#fef08a';
-      ctx.textAlign = 'left';
-      ctx.fillText(tagText, tx + 6, ty + 13);
-
-      // 360° Passing Lane Summary Pill at bottom-left of pitch
-      if (stageMode === 'pitch_360') {
-        const laneHud = `360° 空间评估：${curActive.presserCount} 名逼抢人施压 · 开放出球点 ${openLaneCount} 处 · 被遮蔽通道 ${blockedLaneCount} 处`;
-        ctx.font = '600 10.5px "Inter", "Noto Sans SC", sans-serif';
-        const lw = ctx.measureText(laneHud).width + 16;
-        ctx.fillStyle = 'rgba(7, 13, 24, 0.88)';
-        ctx.strokeStyle = 'rgba(56, 189, 248, 0.45)';
-        ctx.fillRect(ox + 8, oy + ph - 26, lw, 20);
-        ctx.strokeRect(ox + 8, oy + ph - 26, lw, 20);
-        ctx.fillStyle = '#e0f2fe';
-        ctx.textAlign = 'left';
-        ctx.fillText(laneHud, ox + 16, oy + ph - 12.5);
+      if (isZoomed360) {
+        ctx.font = '800 9.5px "JetBrains Mono", monospace';
+        ctx.fillStyle = '#0f172a';
+        ctx.textAlign = 'center';
+        ctx.fillText(String(curActive.jerseyNumber || '8').slice(0, 2), hx, hy + 3.4);
       }
+
+      // Floating Callout Pill in Full-Pitch modes (in 2.2x zoomed 360°, rendered cleanly in top-left HUD bar below)
+      if (!isZoomed360) {
+        const prog = sliceNetProgressionM(curActive);
+        const tagText = `[${curActive.clock}] #${curActive.jerseyNumber || '8'} ${curActive.playerName.split(' ')[0]} · 贴防${curActive.minDefDistM}m · ΔX ${prog >= 0 ? '+' : ''}${prog}m`;
+        ctx.font = '600 10.5px "Inter", "Noto Sans SC", sans-serif';
+        const tw = ctx.measureText(tagText).width + 12;
+        const tx = clamp(hx - tw * 0.5, ox + 6, ox + pw - tw - 6);
+        const pillLift = stageMode === 'pitch_360' ? 34 : 25;
+        const ty = hy > oy + pillLift + 10 ? hy - pillLift : hy + 14;
+        ctx.fillStyle = 'rgba(10, 16, 28, 0.92)';
+        ctx.strokeStyle = 'rgba(250, 204, 21, 0.85)';
+        ctx.lineWidth = 1.1;
+        ctx.fillRect(tx, ty, tw, 19);
+        ctx.strokeRect(tx, ty, tw, 19);
+        ctx.fillStyle = '#fef08a';
+        ctx.textAlign = 'left';
+        ctx.fillText(tagText, tx + 6, ty + 13.5);
+      }
+    }
+
+    ctx.restore();
+
+    // Outer tactical board frame border
+    ctx.strokeStyle = isZoomed360 ? 'rgba(56, 189, 248, 0.45)' : 'rgba(226, 232, 240, 0.35)';
+    ctx.lineWidth = 1.2;
+    ctx.strokeRect(ox, oy, pw, ph);
+
+    // Unclipped HUD Badges in 360° Mode (Top-left active callout + Top-right zoom scale + Bottom-left space evaluation)
+    if (stageMode === 'pitch_360' && curActive) {
+      if (isZoomed360) {
+        const prog = sliceNetProgressionM(curActive);
+        const tagText = `[${curActive.clock}] #${curActive.jerseyNumber || '8'} ${curActive.playerName.split(' ')[0]} · 贴防${curActive.minDefDistM}m · ΔX ${prog >= 0 ? '+' : ''}${prog}m`;
+        ctx.font = '600 10.5px "Inter", "Noto Sans SC", sans-serif';
+        const tw = ctx.measureText(tagText).width + 14;
+        ctx.fillStyle = 'rgba(10, 16, 28, 0.92)';
+        ctx.strokeStyle = 'rgba(250, 204, 21, 0.85)';
+        ctx.lineWidth = 1.1;
+        ctx.fillRect(ox + 8, oy + 8, tw, 19);
+        ctx.strokeRect(ox + 8, oy + 8, tw, 19);
+        ctx.fillStyle = '#fef08a';
+        ctx.textAlign = 'left';
+        ctx.fillText(tagText, ox + 15, oy + 21);
+
+        const zHud = '🔍 2.2x 战术特写 · 5m 网格';
+        ctx.font = '600 10px "Inter", "Noto Sans SC", monospace';
+        const zw = ctx.measureText(zHud).width + 14;
+        ctx.fillStyle = 'rgba(7, 13, 24, 0.86)';
+        ctx.strokeStyle = 'rgba(56, 189, 248, 0.55)';
+        ctx.lineWidth = 1;
+        ctx.fillRect(ox + pw - zw - 8, oy + 8, zw, 19);
+        ctx.strokeRect(ox + pw - zw - 8, oy + 8, zw, 19);
+        ctx.fillStyle = '#7dd3fc';
+        ctx.textAlign = 'left';
+        ctx.fillText(zHud, ox + pw - zw - 1, oy + 21);
+      }
+
+      const laneHud = `360° 空间评估：${curActive.presserCount} 名逼抢人施压 · 开放出球点 ${openLaneCount} 处 · 被遮蔽通道 ${blockedLaneCount} 处`;
+      ctx.font = '600 10.5px "Inter", "Noto Sans SC", sans-serif';
+      const lw = ctx.measureText(laneHud).width + 16;
+      ctx.fillStyle = 'rgba(7, 13, 24, 0.90)';
+      ctx.strokeStyle = 'rgba(56, 189, 248, 0.50)';
+      ctx.lineWidth = 1;
+      ctx.fillRect(ox + 8, oy + ph - 26, lw, 20);
+      ctx.strokeRect(ox + 8, oy + ph - 26, lw, 20);
+      ctx.fillStyle = '#e0f2fe';
+      ctx.textAlign = 'left';
+      ctx.fillText(laneHud, ox + 16, oy + ph - 12.5);
     }
   }
 
@@ -2385,6 +2969,9 @@ export function initFullMatchWorkspace({
     } else if (e.key === 'p' || e.key === 'P') {
       e.preventDefault();
       togglePlaylistMode();
+    } else if (e.key === 's' || e.key === 'S') {
+      e.preventDefault();
+      toggleSliceStar();
     } else if (e.key === '1') {
       setStageMode('pitch_heat');
     } else if (e.key === '2') {
@@ -2415,9 +3002,11 @@ export function initFullMatchWorkspace({
   resizeObs.observe(containerEl);
 
   populateMatchSelector();
+  syncStageChrome();
 
   return {
     onShow() {
+      syncStageChrome();
       renderAll();
     },
     onHide() {
@@ -2427,9 +3016,29 @@ export function initFullMatchWorkspace({
     setStageMode,
     stepSlice,
     togglePlaylistMode,
+    toggleSliceStar,
     trimActiveSlice,
     createManualSliceAtCurrentTime,
     deleteActiveSlice,
+    setMinuteRange(range = null) {
+      filters.minuteRange = Array.isArray(range) && range.length === 2 ? [Number(range[0]), Number(range[1])] : null;
+      renderAll();
+      return this.getSummary();
+    },
+    set360Zoom(val) {
+      zoom360Tactical = Boolean(val);
+      syncStageChrome();
+      if (stageMode !== 'diagnosis') drawPitchCanvas();
+      return zoom360Tactical;
+    },
+    setDiagCompactDock(val) {
+      diagCompactDock = Boolean(val);
+      syncStageChrome();
+      return diagCompactDock;
+    },
+    getOrderedTeamTabs() {
+      return getOrderedTeams(getActiveMatch());
+    },
     setFilters(nextFilters = {}) {
       resetFilters(false);
       Object.assign(filters, nextFilters);
@@ -2467,10 +3076,14 @@ export function initFullMatchWorkspace({
         matchesMeta: matches.map((x) => ({ id: x.id, sliceCount: x.slices.length, totalMinutes: x.totalMinutes })),
         activeMatchId: m.id,
         activeMatchTitle: m.title,
+        orderedTeams: getOrderedTeams(m),
         stageMode,
+        zoom360Tactical,
+        diagCompactDock,
         playlistAutoAdvance,
         totalSlices: m.slices.length,
         filteredSlices: filtered.length,
+        starredCount: m.slices.filter((s) => s.starred).length,
         filters: { ...filters },
         groupByMode,
         activeSlice: active
@@ -2480,6 +3093,8 @@ export function initFullMatchWorkspace({
               clock: active.clock,
               team: active.team,
               playerName: active.playerName,
+              jerseyNumber: active.jerseyNumber,
+              starred: Boolean(active.starred),
               pressType: active.pressType,
               pitchZone: active.pitchZone,
               escapeOutcome: active.escapeOutcome,

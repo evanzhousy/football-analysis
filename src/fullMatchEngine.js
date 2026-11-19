@@ -124,6 +124,7 @@ function analyzeCanvasFrameFeatures(imgData, W, H, prevLuma) {
   let bestPlayers = 1;
   let patchMotion = 0;
   let bestKitContrast = 0;
+  let bestKitBin = 0;
 
   if (isPitch) {
     const cellArea = (W / GX) * (H / GY);
@@ -136,6 +137,7 @@ function analyzeCanvasFrameFeatures(imgData, W, H, prevLuma) {
         if (occ >= 0.04 && occ <= 0.54 && nNon >= 8) {
           // Compute opposing-kit chromatic contrast: 1 - maxBinShare (high when 2+ distinct kit hues collide)
           let maxBin = 0;
+          let maxBinId = 0;
           let secondBin = 0;
           const base = cIdx * 6;
           for (let k = 0; k < 6; k++) {
@@ -143,6 +145,7 @@ function analyzeCanvasFrameFeatures(imgData, W, H, prevLuma) {
             if (cnt > maxBin) {
               secondBin = maxBin;
               maxBin = cnt;
+              maxBinId = k;
             } else if (cnt > secondBin) {
               secondBin = cnt;
             }
@@ -158,6 +161,7 @@ function analyzeCanvasFrameFeatures(imgData, W, H, prevLuma) {
             bestPlayers = clamp(Math.round(occ * 15 + kitContrast * 1.4), 1, 5);
             patchMotion = mot;
             bestKitContrast = kitContrast;
+            bestKitBin = maxBinId;
           }
         }
       }
@@ -171,6 +175,7 @@ function analyzeCanvasFrameFeatures(imgData, W, H, prevLuma) {
     pressScore: Math.min(99, peakScore),
     motion: patchMotion,
     kitContrast: Number(bestKitContrast.toFixed(2)),
+    dominantKitBin: bestKitBin,
     cx: bestGx,
     cy: bestGy,
     players: bestPlayers
@@ -268,6 +273,7 @@ export async function scanLocalMatchVideoInBrowser(file, opts = {}, onProgress =
       pressScore: feat.pressScore,
       motion: feat.motion,
       kitContrast: feat.kitContrast,
+      dominantKitBin: feat.dominantKitBin,
       cx: feat.cx,
       cy: feat.cy,
       players: feat.players
@@ -341,6 +347,7 @@ export async function scanLocalMatchVideoInBrowser(file, opts = {}, onProgress =
             pressScore: fFeat.pressScore,
             motion: fFeat.motion,
             kitContrast: fFeat.kitContrast,
+            dominantKitBin: fFeat.dominantKitBin,
             cx: fFeat.cx,
             cy: fFeat.cy,
             players: fFeat.players
@@ -438,6 +445,7 @@ export async function scanLocalMatchVideoInBrowser(file, opts = {}, onProgress =
       teamKit: 'barca-home',
       oppTeam: awayName,
       oppKit: 'madrid-white',
+      _dominantKitBin: peak.dominantKitBin ?? 0,
       playerName: playerRole === 'MF' ? '#8 中场枢纽' : playerRole === 'FW' ? '#9 锋线支点' : '#4 出球后卫',
       jerseyNumber: playerRole === 'MF' ? '8' : playerRole === 'FW' ? '9' : '4',
       playerRole,
@@ -468,10 +476,30 @@ export async function scanLocalMatchVideoInBrowser(file, opts = {}, onProgress =
     }
   }
 
-  if (onProgress) onProgress(100, slices.length, '扫描与四维归类完成');
-
+  // Auto Dual-Team Assignment via top-2 dominant jersey chromatic bins across scanned slices
   const homeLabel = (opts.homeTeam || '主队(持球)').trim() || '主队(持球)';
   const awayLabel = (opts.awayTeam || '客队(逼抢)').trim() || '客队(逼抢)';
+  if (slices.length >= 4) {
+    const binCounts = new Map();
+    for (const sl of slices) {
+      binCounts.set(sl._dominantKitBin, (binCounts.get(sl._dominantKitBin) || 0) + 1);
+    }
+    const sortedBins = Array.from(binCounts.entries()).sort((a, b) => b[1] - a[1]);
+    if (sortedBins.length >= 2) {
+      const primaryHomeBin = sortedBins[0][0];
+      for (const sl of slices) {
+        if (sl._dominantKitBin !== primaryHomeBin) {
+          sl.team = awayLabel;
+          sl.oppTeam = homeLabel;
+          sl.teamKit = 'madrid-white';
+          sl.oppKit = 'barca-home';
+        }
+      }
+    }
+  }
+  for (const sl of slices) delete sl._dominantKitBin;
+
+  if (onProgress) onProgress(100, slices.length, '扫描、自动分队与四维归类完成');
 
   return {
     id: `local_video_${Date.now()}`,
@@ -485,7 +513,7 @@ export async function scanLocalMatchVideoInBrowser(file, opts = {}, onProgress =
     videoSrc: blobUrl,
     hasDirectFullVideo: true,
     kickoffOffsetSec: 0,
-    sourceLabel: `浏览器两阶段自动扫描 (${stepSec.toFixed(1)}s 粗扫 + 0.45s 精修)`,
+    sourceLabel: `浏览器两阶段自动扫描 (${stepSec.toFixed(1)}s 粗扫 + 0.45s 精修 · 自动分队)`,
     sliceCount: slices.length,
     slices
   };
@@ -607,6 +635,8 @@ export function computeFullMatchAnalytics(match, slices, taxonomy) {
     if (inWin.length > tempoMax) tempoMax = inWin.length;
     return {
       label: b.label,
+      min0: b.min0,
+      min1: b.min1,
       total: inWin.length,
       homeCount: hCnt,
       awayCount: aCnt,
@@ -774,6 +804,45 @@ export function buildMatchScoutingReportMarkdown(match, filteredSlices, taxonomy
       `| #${String(s.index).padStart(2, '0')} | ${s.clock} | ${s.team} | #${s.jerseyNumber || '8'} ${s.playerName} | ${pLbl} | ${zLbl} | ${oLbl} | ${s.minDefDistM}m | ${prog >= 0 ? '+' : ''}${prog}m | ${s.summary} |`
     );
   }
+  lines.push('');
+  return lines.join('\n');
+}
+
+/**
+ * Generates an executable FFmpeg Cut-Up Batch Script (.sh) that slices the exact
+ * currently filtered or starred shortlist from a local full-match MP4 and merges them
+ * into a single halftime meeting reel.
+ */
+export function buildFfmpegCutupScript(match, filteredSlices) {
+  const offset = Number(match.kickoffOffsetSec || 0);
+  const srcHint = match._userBoundVideoName || 'full_match.mp4';
+  const lines = [
+    '#!/usr/bin/env bash',
+    '# 自动生成的教练赛后/中场复盘视频剪辑包脚本 (FFmpeg Cut-Up Reel)',
+    `# 比赛: ${match.title}`,
+    `# 切片数: ${filteredSlices.length} | 开球偏移校准: ${offset >= 0 ? '+' : ''}${offset}s`,
+    'set -euo pipefail',
+    `INPUT_MP4="\${1:-${srcHint}}"`,
+    'OUT_DIR="./cutup_clips"',
+    'mkdir -p "$OUT_DIR"',
+    'CONCAT_LIST="$OUT_DIR/concat_list.txt"',
+    ': > "$CONCAT_LIST"',
+    ''
+  ];
+
+  filteredSlices.forEach((s, idx) => {
+    const t0 = Math.max(0, Number(s.tStart || parseClockToSeconds(s.clock, 0)) + offset);
+    const dur = Math.max(2.0, Number(s.duration || (Number(s.tEnd || t0 + 4.5) - Number(s.tStart || t0))));
+    const safeName = `clip_${String(idx + 1).padStart(2, '0')}_${s.clock.replace(':', 'm')}s_${s.pressType}_${s.escapeOutcome}.mp4`;
+    lines.push(`# #${String(s.index).padStart(2, '0')} [${s.clock}] ${s.team} #${s.jerseyNumber || '8'} ${s.playerName} (${s.pressType} -> ${s.escapeOutcome})`);
+    lines.push(`ffmpeg -y -ss ${t0.toFixed(2)} -i "$INPUT_MP4" -t ${dur.toFixed(2)} -c:v libx264 -preset fast -crf 20 -an "$OUT_DIR/${safeName}"`);
+    lines.push(`echo "file '${safeName}'" >> "$CONCAT_LIST"`);
+    lines.push('');
+  });
+
+  lines.push('# 合并全部精选切片为单个会议连播视频:');
+  lines.push('ffmpeg -y -f concat -safe 0 -i "$CONCAT_LIST" -c copy "$OUT_DIR/coach_cutup_reel.mp4"');
+  lines.push('echo "Done -> $OUT_DIR/coach_cutup_reel.mp4"');
   lines.push('');
   return lines.join('\n');
 }

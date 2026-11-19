@@ -670,20 +670,36 @@ async function main() {
       `  [Full-Match OK] Match 1 (${fmSummary0.activeMatchId}): ${fmSummary0.totalSlices} slices | timelineCanvas=${fmOverflow.timelineW}px pitchCanvas=${fmOverflow.pitchW}px`
     );
 
-    // Switch to 360° Cover-Shadow & Passing Lanes Board on El Clásico Slice #2
+    // Switch to 360° Cover-Shadow & Passing Lanes Board (2.2x Tactical Zoom) on El Clásico Slice #2
     await cdp.eval(`(() => {
       window.__STUDIO_DEBUG__.setFullMatchStageMode('pitch_360');
       window.__STUDIO_DEBUG__.stepFullMatchSlice(1);
     })()`);
     await new Promise((r) => setTimeout(r, 320));
+    const fm360State = await cdp.eval(`window.__STUDIO_DEBUG__.getFullMatchSummary()`);
+    if (!fm360State.zoom360Tactical) {
+      invariantFailures.push(`360° board should default to 2.2x tactical zoom: ${JSON.stringify(fm360State)}`);
+    }
     const fullMatch360Png = path.join(OUT_DIR, 'qa_fullmatch_360_shadows.png');
     await cdp.screenshotPng(fullMatch360Png);
-    console.log(`  [Full-Match 360° Board OK] Captured Cover-Shadow & Passing-Lane Tactical Freeze-Frame`);
+    console.log(`  [Full-Match 360° Board OK] Captured 2.2x Zoomed Cover-Shadow & Passing-Lane Tactical Freeze-Frame`);
 
-    // Switch to Full-Match Diagnosis & Interactive Cross-Matrix View on El Clásico
+    // Switch to Full-Match Diagnosis & Interactive Cross-Matrix View on El Clásico & verify ZERO above-the-fold clipping
     await cdp.eval(`window.__STUDIO_DEBUG__.setFullMatchStageMode('diagnosis')`);
     await new Promise((r) => setTimeout(r, 320));
     const fmAnalytics = await cdp.eval(`window.__STUDIO_DEBUG__.getFullMatchAnalytics()`);
+    const diagLayout = await cdp.eval(`(() => {
+      const el = document.getElementById('fm-diagnosis-view');
+      const stage = document.getElementById('fm-center-stage');
+      return {
+        compactDock: stage?.classList.contains('diag-compact-dock') || false,
+        clientH: el?.clientHeight || 0,
+        scrollH: el?.scrollHeight || 0,
+        matrixRows: el?.querySelectorAll('.fm-matrix-table tbody tr').length || 0,
+        leaderRows: el?.querySelectorAll('.fm-leader-table tbody tr').length || 0,
+        tempoBtns: el?.querySelectorAll('button.fm-tempo-col').length || 0
+      };
+    })()`);
     if (
       !fmAnalytics ||
       !fmAnalytics.teamDuel?.hasTwoTeams ||
@@ -693,19 +709,31 @@ async function main() {
     ) {
       invariantFailures.push(`Full-Match Diagnosis analytics defect: ${JSON.stringify(fmAnalytics)}`);
     }
+    if (!diagLayout.compactDock || diagLayout.scrollH > diagLayout.clientH + 4 || diagLayout.matrixRows !== 4 || diagLayout.leaderRows < 6 || diagLayout.tempoBtns < 6) {
+      invariantFailures.push(`Full-Match Diagnosis above-the-fold clipping or missing controls: ${JSON.stringify(diagLayout)}`);
+    }
     const fullMatchDiagPng = path.join(OUT_DIR, 'qa_fullmatch_diagnosis_matrix.png');
     await cdp.screenshotPng(fullMatchDiagPng);
     console.log(
-      `  [Full-Match Diagnosis OK] Duel: ${fmAnalytics.teamDuel.home.name}(${fmAnalytics.teamDuel.home.escapeRate}%) vs ${fmAnalytics.teamDuel.away.name}(${fmAnalytics.teamDuel.away.escapeRate}%) | Leaderboard=${fmAnalytics.leaderboard.length} players`
+      `  [Full-Match Diagnosis OK] Duel: ${fmAnalytics.teamDuel.home.name}(${fmAnalytics.teamDuel.home.escapeRate}%) vs ${fmAnalytics.teamDuel.away.name}(${fmAnalytics.teamDuel.away.escapeRate}%) | ZeroClip=${diagLayout.scrollH}px/${diagLayout.clientH}px | LeaderRows=${diagLayout.leaderRows}`
     );
 
-    // Verify Team Perspective Filter + Manual Slice Create/Trim/Delete + Playlist Toggle
+    // Verify Team Perspective Filter + 15-Min Tempo Range Filter + ★ Shortlist Star Round-Trip + Manual Slice CRUD + Playlist Toggle
     const teamFilterRes = await cdp.eval(`window.__STUDIO_DEBUG__.filterFullMatch({ team: '巴塞罗那' })`);
     if (teamFilterRes.filteredSlices <= 0 || teamFilterRes.filteredSlices >= teamFilterRes.totalSlices) {
       invariantFailures.push(`Team filter unexpected count: ${JSON.stringify(teamFilterRes)}`);
     }
-    const crudCheck = await cdp.eval(`(() => {
+    const v25Interactivity = await cdp.eval(`(() => {
       window.__STUDIO_DEBUG__.filterFullMatch({});
+      const rangeRes = window.__STUDIO_DEBUG__.setFullMatchMinuteRange([15, 30]);
+      const rangeChipVisible = document.getElementById('fm-range-chip')?.style.display !== 'none';
+      window.__STUDIO_DEBUG__.setFullMatchMinuteRange(null);
+
+      const starOn = window.__STUDIO_DEBUG__.toggleFullMatchStar();
+      const starredFilter = window.__STUDIO_DEBUG__.filterFullMatch({ starredOnly: true });
+      window.__STUDIO_DEBUG__.filterFullMatch({});
+      const starOff = window.__STUDIO_DEBUG__.toggleFullMatchStar();
+
       const before = window.__STUDIO_DEBUG__.getFullMatchSummary().totalSlices;
       const created = window.__STUDIO_DEBUG__.createManualFullMatchSlice();
       const afterCreate = window.__STUDIO_DEBUG__.getFullMatchSummary().totalSlices;
@@ -714,19 +742,57 @@ async function main() {
       const plOff = window.__STUDIO_DEBUG__.toggleFullMatchPlaylist(false);
       const deleted = window.__STUDIO_DEBUG__.deleteActiveFullMatchSlice();
       const afterDelete = window.__STUDIO_DEBUG__.getFullMatchSummary().totalSlices;
-      return { before, afterCreate, trimmedDur: trimmed?.duration, plOn, plOff, deleted, afterDelete, createdId: created?.id };
+      return {
+        rangeFiltered: rangeRes.filteredSlices,
+        rangeChipVisible,
+        starOn,
+        starredCountFiltered: starredFilter.filteredSlices,
+        starOff,
+        before,
+        afterCreate,
+        trimmedDur: trimmed?.duration,
+        plOn,
+        plOff,
+        deleted,
+        afterDelete,
+        createdId: created?.id
+      };
     })()`);
-    if (crudCheck.afterCreate !== crudCheck.before + 1 || !crudCheck.deleted || crudCheck.afterDelete !== crudCheck.before || !crudCheck.plOn) {
-      invariantFailures.push(`Full-Match Slice Studio CRUD/Playlist failure: ${JSON.stringify(crudCheck)}`);
+    if (
+      v25Interactivity.rangeFiltered <= 0 ||
+      v25Interactivity.rangeFiltered >= 56 ||
+      !v25Interactivity.rangeChipVisible ||
+      !v25Interactivity.starOn ||
+      v25Interactivity.starredCountFiltered !== 1 ||
+      v25Interactivity.starOff !== false ||
+      v25Interactivity.afterCreate !== v25Interactivity.before + 1 ||
+      !v25Interactivity.deleted ||
+      v25Interactivity.afterDelete !== v25Interactivity.before ||
+      !v25Interactivity.plOn
+    ) {
+      invariantFailures.push(`Full-Match v2.5 interactivity/CRUD failure: ${JSON.stringify(v25Interactivity)}`);
     }
     console.log(
-      `  [Full-Match Studio CRUD OK] TeamFilter(巴塞罗那)=${teamFilterRes.filteredSlices}/${teamFilterRes.totalSlices} | Add/Trim/Delete=${crudCheck.before}->${crudCheck.afterCreate}->${crudCheck.afterDelete} | Playlist=OK`
+      `  [Full-Match v2.5 Studio OK] TeamFilter(巴塞罗那)=${teamFilterRes.filteredSlices}/${teamFilterRes.totalSlices} | Range(15-30')=${v25Interactivity.rangeFiltered} | ★Shortlist=1 | CRUD=${v25Interactivity.before}->${v25Interactivity.afterCreate}->${v25Interactivity.afterDelete}`
     );
 
-    // Switch back to pitch_heat on Euro 2024 ESP vs GER (122 mins, 60 slices) & test 4D taxonomy filter + group-by
+    // Switch back to pitch_heat on Euro 2024 ESP vs GER (122 mins, 60 slices) & verify canonical team color order + 4D filter
     await cdp.eval(`window.__STUDIO_DEBUG__.selectFullMatch('euro2024_esp_ger_3942226')`);
     await cdp.eval(`window.__STUDIO_DEBUG__.setFullMatchStageMode('pitch_heat')`);
     await cdp.eval(`window.__STUDIO_DEBUG__.setFullMatchGroupBy('escapeOutcome')`);
+    const euroTeamOrder = await cdp.eval(`({
+      ordered: window.__STUDIO_DEBUG__.getFullMatchOrderedTeams(),
+      domTabs: Array.from(document.querySelectorAll('#fm-team-tabs button[data-team]')).map(b => b.dataset.team)
+    })`);
+    if (
+      euroTeamOrder.ordered[0] !== '西班牙' ||
+      euroTeamOrder.ordered[1] !== '德国' ||
+      euroTeamOrder.domTabs[1] !== '西班牙' ||
+      euroTeamOrder.domTabs[2] !== '德国'
+    ) {
+      invariantFailures.push(`Euro 2024 canonical team order bug regression: ${JSON.stringify(euroTeamOrder)}`);
+    }
+
     const fmFilteredSummary = await cdp.eval(
       `window.__STUDIO_DEBUG__.filterFullMatch({ pressType: 'double_trap', playerRole: 'MF' })`
     );
@@ -741,7 +807,7 @@ async function main() {
     fullMatchFilteredPng = path.join(OUT_DIR, 'qa_fullmatch_filtered_view.png');
     await cdp.screenshotPng(fullMatchFilteredPng);
     console.log(
-      `  [Full-Match 4D Filter OK] Euro 2024 (double_trap + MF): ${fmFilteredSummary.filteredSlices}/${fmFilteredSummary.totalSlices} slices`
+      `  [Full-Match 4D Filter & Euro Order OK] Teams=[${euroTeamOrder.ordered.join(', ')}] | Euro 2024 (double_trap + MF): ${fmFilteredSummary.filteredSlices}/${fmFilteredSummary.totalSlices} slices`
     );
 
     // Test 1-Click Dynamic 3D Reconstruction Bridge on El Clásico Slice #2 (Busquets double_trap -> half_turn)
@@ -797,8 +863,10 @@ async function main() {
         leaderboardTop3: fmAnalytics.leaderboard.slice(0, 3).map((p) => ({ name: p.playerName, count: p.count, escapeRate: p.escapeRate, pressIndex: p.pressIndex })),
         insights: fmAnalytics.insights
       },
+      diagLayout,
+      euroTeamOrder,
       teamFilterCount: teamFilterRes.filteredSlices,
-      crudCheck,
+      v25Interactivity,
       filteredSummary: fmFilteredSummary,
       layoutMetrics: fmOverflow,
       bridgeEscape,

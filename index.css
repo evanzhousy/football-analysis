@@ -2984,3 +2984,237 @@ body {
   justify-content: flex-end;
   gap: 8px;
 }
+
+/* ==========================================================================
+   Full-Match Greenfield v2.5: Compact Diagnosis Dock, Shortlist Stars,
+   Interactive Tempo/Range Filter, Inline Player Edit & FFmpeg .sh Export
+   ========================================================================== */
+.fm-range-chip {
+  appearance: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2.5px 8px;
+  border-radius: 99px;
+  border: 1px solid var(--accent-gold);
+  background: hsla(43, 92%, 56%, 0.22);
+  color: #fef08a;
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  font-weight: 700;
+  cursor: pointer;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.fm-range-chip:hover {
+  background: hsla(43, 92%, 56%, 0.34);
+}
+
+.fm-search-row {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.fm-search-input {
+  flex: 1 1 0;
+  min-width: 0;
+}
+
+.fm-star-filter-btn {
+  appearance: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  padding: 5px 8px;
+  border-radius: 6px;
+  border: 1px solid var(--border-strong);
+  background: hsla(212, 24%, 14%, 0.92);
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 700;
+  cursor: pointer;
+  white-space: nowrap;
+  flex-shrink: 0;
+  transition: all 0.14s ease;
+}
+
+.fm-star-filter-btn em {
+  font-style: normal;
+}
+
+.fm-star-filter-btn.has-stars {
+  color: #fde047;
+  border-color: hsla(43, 92%, 56%, 0.45);
+}
+
+.fm-star-filter-btn.active {
+  background: hsla(43, 92%, 56%, 0.24);
+  border-color: var(--accent-gold);
+  color: #fef08a;
+  box-shadow: 0 0 0 1px hsla(43, 92%, 56%, 0.35);
+}
+
+.fm-cli-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+  margin-bottom: 4px;
+}
+
+.fm-cli-head .fm-cli-title {
+  margin-bottom: 0;
+}
+
+.fm-cli-export-btn {
+  appearance: none;
+  padding: 2px 6px;
+  border-radius: 4px;
+  border: 1px solid hsla(192, 86%, 56%, 0.45);
+  background: hsla(192, 86%, 56%, 0.14);
+  color: #bae6fd;
+  font-family: inherit;
+  font-size: 9.5px;
+  font-weight: 600;
+  cursor: pointer;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.fm-cli-export-btn:hover {
+  background: hsla(192, 86%, 56%, 0.28);
+  border-color: var(--accent-cyan);
+  color: #f0f9ff;
+}
+
+/* Auto-Compact Bottom Video Dock in Diagnosis Mode -> Zero Above-the-Fold Clipping! */
+.fm-center-stage.diag-compact-dock {
+  grid-template-rows: minmax(0, 1fr) 86px;
+}
+
+.fm-center-stage.diag-compact-dock .fm-inspector-card {
+  grid-template-columns: minmax(0, 1fr);
+  padding: 7px 12px;
+}
+
+.fm-center-stage.diag-compact-dock .fm-slice-video-col,
+.fm-center-stage.diag-compact-dock .fm-retag-box {
+  display: none;
+}
+
+.fm-center-stage.diag-compact-dock .fm-slice-detail-col {
+  justify-content: center;
+  gap: 5px;
+}
+
+/* Star Shortlist Buttons (Inspector & Cards) */
+.fm-star-btn,
+.fm-card-star {
+  appearance: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+  line-height: 1;
+  transition: transform 0.12s ease, color 0.12s ease;
+}
+
+.fm-star-btn {
+  width: 22px;
+  height: 20px;
+  border-radius: 4px;
+  border-color: var(--border-subtle);
+  background: hsla(212, 24%, 15%, 0.85);
+  font-size: 13px;
+}
+
+.fm-star-btn:hover,
+.fm-card-star:hover {
+  color: #fde047;
+  transform: scale(1.1);
+}
+
+.fm-star-btn.starred {
+  color: #facc15;
+  border-color: hsla(43, 92%, 56%, 0.65);
+  background: hsla(43, 92%, 56%, 0.18);
+}
+
+.fm-card-star {
+  padding: 0 2px;
+  font-size: 13px;
+  flex-shrink: 0;
+}
+
+.fm-card-star.starred {
+  color: #facc15;
+}
+
+.fm-slice-card.is-starred {
+  box-shadow: inset 2px 0 0 #facc15;
+}
+
+/* Inline Jersey # & Player Name Quick-Edit Inputs */
+.fm-edit-mini-input {
+  padding: 5px 6px;
+  border-radius: 5px;
+  border: 1px solid var(--border-subtle);
+  background: hsla(212, 26%, 8%, 0.82);
+  color: var(--text-primary);
+  font-family: inherit;
+  font-size: 11px;
+  flex-shrink: 0;
+}
+
+.fm-edit-mini-input.jersey {
+  width: 34px;
+  text-align: center;
+  font-family: var(--font-mono);
+  font-weight: 700;
+  color: var(--accent-gold);
+}
+
+.fm-edit-mini-input.player {
+  width: 88px;
+  font-weight: 600;
+}
+
+.fm-edit-mini-input:focus {
+  outline: none;
+  border-color: var(--accent-gold);
+}
+
+/* Interactive Clickable 15-Minute Tempo Wave Columns */
+button.fm-tempo-col {
+  appearance: none;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 5px;
+  padding: 2px 2px 1px;
+  font-family: inherit;
+  cursor: pointer;
+  transition: background 0.12s ease, border-color 0.12s ease;
+}
+
+button.fm-tempo-col:hover {
+  background: hsla(192, 86%, 56%, 0.12);
+  border-color: hsla(192, 86%, 56%, 0.35);
+}
+
+button.fm-tempo-col.active {
+  background: hsla(43, 92%, 56%, 0.18);
+  border-color: var(--accent-gold);
+}
+
+button.fm-tempo-col.active .fm-tempo-lbl,
+button.fm-tempo-col.active .fm-tempo-val {
+  color: #fef08a;
+  font-weight: 700;
+}
+
